@@ -1,0 +1,7 @@
+TickerSymbol,CompanyName,Locale,SourceFeed,Provider
+GC,Gold Futures,global,manual_watchlist,massive
+SI,Silver Futures,global,manual_watchlist,massive
+CL,WTI Crude Oil Futures,global,manual_watchlist,massive
+BZ,Brent Crude Futures,global,manual_watchlist,massive
+NG,Natural Gas Futures,global,manual_watchlist,massive
+HG,Copper Futures,global,manual_watchlist,massive
