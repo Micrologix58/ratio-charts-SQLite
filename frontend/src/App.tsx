@@ -2,6 +2,7 @@ import React, { useEffect, useState } from "react";
 import { TradingViewPriceChart } from "./TradingViewPriceChart";
 import { fetchAnnotations, saveAnnotation, deleteAnnotation } from "./services/annotationApi";
 import { WatchlistPanel } from "./WatchlistPanel";
+import { AssetWatchlistTab } from "./AssetWatchlistTab";
 import type { WatchlistEntry } from "./services/watchlistApi";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Annotation, ChartKey } from "./types/annotations";
@@ -124,7 +125,7 @@ export default function App() {
     const [, setAnnotationsLoading] = useState(false);
     const [annotationsError, setAnnotationsError] = useState<string | null>(null);
     const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
-    const [activeTab, setActiveTab] = useState<AppTab>("chart");
+    const [activeTab, setActiveTab] = useState<AppTab>("home");
 
     // Company name(s) fetched from the DB for display below the toolbar
     const [companyDisplay, setCompanyDisplay] = useState<string>("");
@@ -379,6 +380,13 @@ export default function App() {
         }
     }
 
+    function handleOpenChartSymbol(ticker: string) {
+        setMode("S");
+        setSymbol(ticker);
+        setInputValue(ticker);
+        setActiveTab("chart");
+    }
+
     return (
         <div style={{
             minHeight: "100vh",
@@ -393,7 +401,7 @@ export default function App() {
         }}>
             {/* App title */}
             <div style={{ textAlign: "center", padding: "8px 0 0", color: "#e2e8f0", fontSize: 18, fontWeight: 600, flexShrink: 0 }}>
-                Ratio Charts
+                Investment Hiker
             </div>
 
             {/* Tab bar */}
@@ -666,7 +674,7 @@ export default function App() {
             </div>
 
             {/* Company name display */}
-            <div style={{ marginBottom: 8, color: "#e2e8f0", fontSize: 15, fontWeight: 500, letterSpacing: 0.3 }}>
+            <div style={{ marginBottom: 8, color: "#e2e8f0", fontSize: 22, fontWeight: 600, letterSpacing: 0.3, textAlign: "center" }}>
                 {companyDisplay || (mode === "S" ? symbol : expression)}
                 {annotationsError && (
                     <span style={{ color: "#ff6b6b", fontSize: 12, marginLeft: 12 }}>
@@ -698,13 +706,16 @@ export default function App() {
                 )}
 
 
-            {/* Fundamentals tab placeholder */}
-            {activeTab === "fundamentals" && (
+            {/* Home tab placeholder */}
+            {activeTab === "home" && (
                 <div style={{ flex: 1, padding: 24, color: "#94a3b8" }}>
-                    <h3 style={{ color: "#e2e8f0", marginTop: 0 }}>Fundamentals</h3>
+                    <h3 style={{ color: "#e2e8f0", marginTop: 0 }}>Home</h3>
                     <p>Coming soon.</p>
                 </div>
             )}
+
+            {/* Watchlist tab */}
+            {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenChartSymbol} />}
 
             {/* Portfolio tab placeholder */}
             {activeTab === "portfolio" && (

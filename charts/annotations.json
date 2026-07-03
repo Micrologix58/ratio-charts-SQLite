@@ -1,0 +1,89 @@
+[
+  {
+    "id": "ann-1783018976369",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "R",
+      "timeframe": "D",
+      "expression": "USAS/C:XAUUSD"
+    },
+    "points": [
+      {
+        "time": "2026-03-02",
+        "price": 0.0018763832012257291
+      },
+      {
+        "time": "2026-06-16",
+        "price": 0.0013578453672763887
+      }
+    ],
+    "style": {
+      "color": "#a78bfa",
+      "lineWidth": 1,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": true
+    },
+    "locked": false,
+    "createdAt": "2026-07-02T19:02:56.369Z",
+    "updatedAt": "2026-07-02T19:03:59.786Z"
+  },
+  {
+    "id": "ann-1783018982959",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "R",
+      "timeframe": "D",
+      "expression": "USAS/C:XAUUSD"
+    },
+    "points": [
+      {
+        "time": "2025-12-22",
+        "price": 0.001307218852651995
+      },
+      {
+        "time": "2025-12-22",
+        "price": 0.001307218852651995
+      }
+    ],
+    "style": {
+      "color": "#4aa3ff",
+      "lineWidth": 2,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": false
+    },
+    "locked": false,
+    "createdAt": "2026-07-02T19:03:02.959Z",
+    "updatedAt": "2026-07-02T19:03:02.959Z"
+  },
+  {
+    "id": "ann-1783019051873",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "R",
+      "timeframe": "D",
+      "expression": "USAS/C:XAUUSD"
+    },
+    "points": [
+      {
+        "time": "2026-03-30",
+        "price": 0.001034786096197438
+      },
+      {
+        "time": "2026-06-24",
+        "price": 0.0011366072274261328
+      }
+    ],
+    "style": {
+      "color": "#a78bfa",
+      "lineWidth": 1,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": false
+    },
+    "locked": false,
+    "createdAt": "2026-07-02T19:04:11.873Z",
+    "updatedAt": "2026-07-02T19:04:28.706Z"
+  }
+]

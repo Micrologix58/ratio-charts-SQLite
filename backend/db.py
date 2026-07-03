@@ -64,6 +64,47 @@ def upsert_companies(conn: sqlite3.Connection, rows: Iterable[Dict]) -> int:
     return len(rows)
 
 
+def upsert_dividends(conn: sqlite3.Connection, rows: Iterable[Dict]) -> int:
+    rows = list(rows)
+    if not rows:
+        return 0
+
+    sql = """
+    INSERT INTO Dividends
+        (TickerSymbol, ExDividendDate, PayDate, RecordDate, DeclarationDate,
+         CashAmount, Frequency, DividendType, Currency, LastUpdated)
+    VALUES
+        (?, ?, ?, ?, ?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(TickerSymbol, ExDividendDate, DividendType) DO UPDATE SET
+        PayDate = excluded.PayDate,
+        RecordDate = excluded.RecordDate,
+        DeclarationDate = excluded.DeclarationDate,
+        CashAmount = excluded.CashAmount,
+        Frequency = excluded.Frequency,
+        Currency = excluded.Currency,
+        LastUpdated = CURRENT_TIMESTAMP
+    """
+
+    cur = conn.cursor()
+    for r in rows:
+        cur.execute(
+            sql,
+            (
+                r["TickerSymbol"],
+                r["ExDividendDate"],
+                r.get("PayDate"),
+                r.get("RecordDate"),
+                r.get("DeclarationDate"),
+                r["CashAmount"],
+                r.get("Frequency"),
+                r.get("DividendType"),
+                r.get("Currency") or "USD",
+            ),
+        )
+    conn.commit()
+    return len(rows)
+
+
 def upsert_price_history(conn: sqlite3.Connection, rows: Iterable[Dict]) -> int:
     rows = list(rows)
     if not rows:

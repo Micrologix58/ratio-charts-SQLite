@@ -2,6 +2,7 @@ const express = require("express");
 const cors = require("cors");
 const fs = require("fs");
 const path = require("path");
+const { spawn } = require("child_process");
 
 const db = require("./db");
 
@@ -340,6 +341,241 @@ app.get("/api/company/:symbol", (req, res) => {
     } catch (err) {
         console.error("company lookup error:", err);
         res.status(500).json({ error: err.message });
+    }
+});
+
+// ─── Asset Watchlists (Watchlist tab — SQLite-backed, separate from the ───
+// ─── file-based /api/watchlists used by the Chart tab's sidebar) ──────────
+
+const assetWatchlistEntriesStmt = db.prepare(`
+    SELECT e.TickerSymbol AS tickerSymbol, c.CompanyName AS companyName, c.AssetType AS assetType
+    FROM AssetWatchlistEntries e
+    JOIN Companies c ON c.TickerSymbol = e.TickerSymbol
+    WHERE e.WatchlistID = ?
+    ORDER BY e.AddedAt
+`);
+
+function loadAssetWatchlist(id) {
+    const wl = db.prepare(
+        `SELECT WatchlistID AS id, Name AS name, CreatedAt AS createdAt, UpdatedAt AS updatedAt FROM AssetWatchlists WHERE WatchlistID = ?`
+    ).get(id);
+    if (!wl) return null;
+    return { ...wl, entries: assetWatchlistEntriesStmt.all(id) };
+}
+
+// GET /api/asset-watchlists
+app.get("/api/asset-watchlists", (req, res) => {
+    try {
+        const lists = db.prepare(
+            `SELECT WatchlistID AS id, Name AS name, CreatedAt AS createdAt, UpdatedAt AS updatedAt FROM AssetWatchlists ORDER BY WatchlistID`
+        ).all();
+        const data = lists.map(wl => ({ ...wl, entries: assetWatchlistEntriesStmt.all(wl.id) }));
+        res.json({ success: true, data });
+    } catch (err) {
+        console.error("GET /api/asset-watchlists error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/asset-watchlists  body: { name }
+app.post("/api/asset-watchlists", (req, res) => {
+    try {
+        const name = String(req.body.name || "").trim();
+        if (!name) return res.status(400).json({ success: false, error: "name required" });
+        const info = db.prepare(`INSERT INTO AssetWatchlists (Name) VALUES (?)`).run(name);
+        res.json({ success: true, data: loadAssetWatchlist(info.lastInsertRowid) });
+    } catch (err) {
+        console.error("POST /api/asset-watchlists error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PATCH /api/asset-watchlists/:id  body: { name }
+app.patch("/api/asset-watchlists/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const name = String(req.body.name || "").trim();
+        if (!name) return res.status(400).json({ success: false, error: "name required" });
+        const info = db.prepare(`UPDATE AssetWatchlists SET Name = ?, UpdatedAt = CURRENT_TIMESTAMP WHERE WatchlistID = ?`).run(name, id);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: "watchlist not found" });
+        res.json({ success: true, data: loadAssetWatchlist(id) });
+    } catch (err) {
+        console.error("PATCH /api/asset-watchlists error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/asset-watchlists/:id
+app.delete("/api/asset-watchlists/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const info = db.prepare(`DELETE FROM AssetWatchlists WHERE WatchlistID = ?`).run(id);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: "watchlist not found" });
+        res.json({ success: true });
+    } catch (err) {
+        console.error("DELETE /api/asset-watchlists error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/asset-watchlists/:id/entries  body: { tickerSymbol }
+app.post("/api/asset-watchlists/:id/entries", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
+        if (!ticker) return res.status(400).json({ success: false, error: "tickerSymbol required" });
+
+        const wl = db.prepare(`SELECT WatchlistID FROM AssetWatchlists WHERE WatchlistID = ?`).get(id);
+        if (!wl) return res.status(404).json({ success: false, error: "watchlist not found" });
+
+        const company = db.prepare(`SELECT TickerSymbol, AssetType FROM Companies WHERE TickerSymbol = ?`).get(ticker);
+        if (!company || !["STOCK", "ETF"].includes(String(company.AssetType).toUpperCase())) {
+            return res.status(400).json({ success: false, error: `${ticker} is not a known stock/ETF in Companies` });
+        }
+
+        db.prepare(`INSERT OR IGNORE INTO AssetWatchlistEntries (WatchlistID, TickerSymbol) VALUES (?, ?)`).run(id, ticker);
+        res.json({ success: true, data: loadAssetWatchlist(id) });
+    } catch (err) {
+        console.error("POST /api/asset-watchlists/:id/entries error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/asset-watchlists/:id/entries/:tickerSymbol
+app.delete("/api/asset-watchlists/:id/entries/:tickerSymbol", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const ticker = String(req.params.tickerSymbol || "").toUpperCase().trim();
+        const wl = db.prepare(`SELECT WatchlistID FROM AssetWatchlists WHERE WatchlistID = ?`).get(id);
+        if (!wl) return res.status(404).json({ success: false, error: "watchlist not found" });
+
+        db.prepare(`DELETE FROM AssetWatchlistEntries WHERE WatchlistID = ? AND TickerSymbol = ?`).run(id, ticker);
+        res.json({ success: true, data: loadAssetWatchlist(id) });
+    } catch (err) {
+        console.error("DELETE /api/asset-watchlists/:id/entries error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/asset-universe?assetType=stock|ETF  — ticker search source for + Stock / + ETF
+app.get("/api/asset-universe", (req, res) => {
+    try {
+        const assetType = String(req.query.assetType || "").toUpperCase();
+        if (!["STOCK", "ETF"].includes(assetType)) {
+            return res.status(400).json({ success: false, error: "assetType must be stock or ETF" });
+        }
+        const rows = db.prepare(
+            `SELECT TickerSymbol, CompanyName, AssetType FROM Companies WHERE UPPER(AssetType) = ? ORDER BY TickerSymbol`
+        ).all(assetType);
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        console.error("GET /api/asset-universe error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/asset-rankings?assetType=ETF&limit=100  or  ?assetType=stock&limit=200
+app.get("/api/asset-rankings", (req, res) => {
+    try {
+        const assetType = String(req.query.assetType || "").toUpperCase();
+        if (!["STOCK", "ETF"].includes(assetType)) {
+            return res.status(400).json({ success: false, error: "assetType must be stock or ETF" });
+        }
+        const defaultLimit = assetType === "ETF" ? 100 : 200;
+        const limit = parseInt(req.query.limit, 10) || defaultLimit;
+
+        const asOfRow = db.prepare(`SELECT MAX(AsOfDate) AS asOfDate FROM AssetRankings`).get();
+
+        let rows;
+        if (assetType === "ETF") {
+            rows = db.prepare(`
+                SELECT r.TickerSymbol, c.CompanyName,
+                       r.Price1yrApprPct, r.FullDripReturnPct, r.ZeroDripReturnPct,
+                       r.AverageYieldPct, r.DripScore, r.DripOpportunityPct, r.OpportunityRank
+                FROM AssetRankings r
+                JOIN Companies c ON c.TickerSymbol = r.TickerSymbol
+                WHERE r.AssetType = 'ETF' AND r.OpportunityRank IS NOT NULL
+                ORDER BY r.OpportunityRank DESC, r.DripScore DESC
+                LIMIT ?
+            `).all(limit);
+        } else {
+            rows = db.prepare(`
+                SELECT r.TickerSymbol, c.CompanyName, c.DatabaseCategory AS Sector,
+                       r.Price1yrApprPct, r.LastDividendAmount, r.TrailingAnnualDividend,
+                       r.DividendYieldPct, r.StockRank
+                FROM AssetRankings r
+                JOIN Companies c ON c.TickerSymbol = r.TickerSymbol
+                WHERE r.AssetType = 'STOCK' AND r.StockRank IS NOT NULL
+                ORDER BY r.StockRank DESC, r.StockCompositeRaw DESC
+                LIMIT ?
+            `).all(limit);
+        }
+
+        res.json({ success: true, asOfDate: asOfRow ? asOfRow.asOfDate : null, data: rows });
+    } catch (err) {
+        console.error("GET /api/asset-rankings error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/companies/onboard  body: { tickerSymbol, companyName, assetType, databaseCategory, exchangeListed?, websiteURL? }
+app.post("/api/companies/onboard", (req, res) => {
+    try {
+        const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
+        const name = String(req.body.companyName || "").trim();
+        const assetType = String(req.body.assetType || "").trim();
+        const { databaseCategory, exchangeListed, websiteURL } = req.body;
+
+        if (!ticker || !name || !["STOCK", "ETF"].includes(assetType.toUpperCase())) {
+            return res.status(400).json({ success: false, error: "tickerSymbol, companyName, and assetType (Stock/ETF) are required" });
+        }
+
+        const existing = db.prepare(`SELECT TickerSymbol FROM Companies WHERE TickerSymbol = ?`).get(ticker);
+        if (existing) {
+            return res.status(400).json({ success: false, error: `${ticker} already exists in Companies` });
+        }
+
+        db.prepare(`
+            INSERT INTO Companies
+                (TickerSymbol, CompanyName, AssetType, DatabaseCategory, ExchangeListed, WebsiteURL, Active, SourceFeed, Provider, CreatedAt, UpdatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, 1, 'manual', 'manual', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(ticker, name, assetType, databaseCategory || null, exchangeListed || null, websiteURL || null);
+
+        const backendDir = path.join(__dirname, "backend");
+        const tickersFile = path.join(backendDir, "tickers.txt");
+        const existingLines = fs.existsSync(tickersFile)
+            ? fs.readFileSync(tickersFile, "utf8").split(/\r?\n/).map(l => l.trim().toUpperCase())
+            : [];
+        if (!existingLines.includes(ticker)) {
+            fs.appendFileSync(tickersFile, `\n${ticker}`, "utf8");
+        }
+
+        const child = spawn("python", ["4-update_prices_manual.py", ticker], {
+            cwd: backendDir,
+            detached: true,
+            stdio: "ignore",
+        });
+        child.unref();
+
+        console.log(`POST /api/companies/onboard — added ${ticker}, spawned initial price backfill`);
+        res.json({ success: true, data: { tickerSymbol: ticker, priceBackfillTriggered: true } });
+    } catch (err) {
+        console.error("POST /api/companies/onboard error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/companies/:symbol/price-status
+app.get("/api/companies/:symbol/price-status", (req, res) => {
+    try {
+        const symbol = String(req.params.symbol || "").toUpperCase().trim();
+        const row = db.prepare(
+            `SELECT COUNT(*) AS rowCount, MAX(PriceDate) AS lastPriceDate FROM PriceHistory WHERE TickerSymbol = ?`
+        ).get(symbol);
+        res.json({ success: true, data: { tickerSymbol: symbol, rowCount: row.rowCount, lastPriceDate: row.lastPriceDate } });
+    } catch (err) {
+        console.error("GET /api/companies/:symbol/price-status error:", err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 

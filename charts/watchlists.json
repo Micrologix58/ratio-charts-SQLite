@@ -6,6 +6,132 @@
       {
         "type": "S",
         "symbol": "GLD"
+      },
+      {
+        "type": "S",
+        "symbol": "GDX"
+      },
+      {
+        "type": "S",
+        "symbol": "GDXJ"
+      },
+      {
+        "type": "S",
+        "symbol": "IAUI"
+      },
+      {
+        "type": "R",
+        "expression": "IAUI/GLD"
+      },
+      {
+        "type": "S",
+        "symbol": "SIL"
+      },
+      {
+        "type": "R",
+        "expression": "IAUI/I:COMP"
+      },
+      {
+        "type": "R",
+        "expression": "IAUI/C:XAUUSD"
+      },
+      {
+        "type": "S",
+        "symbol": "C:XAUUSD"
+      },
+      {
+        "type": "S",
+        "symbol": "C:XAGUSD"
+      },
+      {
+        "type": "R",
+        "expression": "C:XAUUSD/GLD"
+      },
+      {
+        "type": "R",
+        "expression": "C:XAUUSD/SPY"
+      },
+      {
+        "type": "S",
+        "symbol": "USAS"
+      },
+      {
+        "type": "R",
+        "expression": "USAS/C:XAUUSD"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783031030855",
+    "name": "Crypto",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "NEHI"
+      },
+      {
+        "type": "R",
+        "expression": "NEHI/GLD"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783031102788",
+    "name": "Real Estate",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "MORT"
+      },
+      {
+        "type": "R",
+        "expression": "MORT/GLD"
+      },
+      {
+        "type": "S",
+        "symbol": "IYRI"
+      },
+      {
+        "type": "R",
+        "expression": "IYRI/SPY"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783031219715",
+    "name": "Oil&Gas",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "USO"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783031263358",
+    "name": "Materials",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "RIO"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783031290708",
+    "name": "Utilities",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "EIX"
+      },
+      {
+        "type": "S",
+        "symbol": "AVA"
+      },
+      {
+        "type": "S",
+        "symbol": "POR"
       }
     ]
   }
