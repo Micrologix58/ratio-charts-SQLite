@@ -579,6 +579,296 @@ app.get("/api/companies/:symbol/price-status", (req, res) => {
     }
 });
 
+// ─── Portfolio tab (SQLite-backed: PortfolioAccounts / PortfolioHoldings / ───
+// ─── PortfolioTransactions — see sql/003_portfolio.sql) ──────────────────────
+
+const currentPriceStmt = db.prepare(
+    `SELECT ClosePrice FROM PriceHistory WHERE TickerSymbol = ? ORDER BY PriceDate DESC LIMIT 1`
+);
+const trailingDividendStmt = db.prepare(
+    `SELECT COALESCE(SUM(CashAmount), 0) AS total FROM Dividends
+     WHERE TickerSymbol = ? AND ExDividendDate > date('now', '-1 year') AND ExDividendDate <= date('now')`
+);
+
+// Adds live-computed fields (current price, value, yield, etc.) to raw holding rows
+// and a portfolio-wide "% of Holdings" once all rows are known.
+function withHoldingMetrics(rows) {
+    const withPrice = rows.map(r => {
+        const priceRow = currentPriceStmt.get(r.tickerSymbol);
+        const currentPrice = priceRow ? priceRow.ClosePrice : null;
+        const trailingDividend = trailingDividendStmt.get(r.tickerSymbol).total;
+        const distributionPerYear = r.distributionPerYear != null ? r.distributionPerYear : trailingDividend;
+        const value = currentPrice != null ? currentPrice * r.currentShares : null;
+        const investedBasis = r.basisPrice != null ? r.basisPrice * r.currentShares : null;
+        const yieldPct = currentPrice ? (distributionPerYear / currentPrice) * 100 : null;
+        const annualIncome = distributionPerYear != null ? distributionPerYear * r.currentShares : null;
+        return { ...r, currentPrice, distributionPerYear, value, investedBasis, yieldPct, annualIncome };
+    });
+
+    const totalValue = withPrice.reduce((sum, r) => sum + (r.value || 0), 0);
+    return withPrice.map(r => ({
+        ...r,
+        pctOfHoldings: totalValue > 0 && r.value != null ? (r.value / totalValue) * 100 : null,
+    }));
+}
+
+const holdingsBaseQuery = `
+    SELECT h.HoldingID AS id, h.AccountID AS accountId, a.Name AS accountName,
+           h.TickerSymbol AS tickerSymbol, c.CompanyName AS companyName, c.AssetType AS assetType,
+           h.AllocationPct AS allocationPct, h.BasisPrice AS basisPrice, h.CurrentShares AS currentShares,
+           h.SharesToHold AS sharesToHold, h.HoldingsCount AS holdingsCount,
+           h.DistributionPerYear AS distributionPerYear, h.Status AS status, h.TaxForm AS taxForm
+    FROM PortfolioHoldings h
+    JOIN PortfolioAccounts a ON a.AccountID = h.AccountID
+    JOIN Companies c ON c.TickerSymbol = h.TickerSymbol
+`;
+
+// GET /api/portfolio/accounts
+app.get("/api/portfolio/accounts", (req, res) => {
+    try {
+        const rows = db.prepare(
+            `SELECT AccountID AS id, Name AS name FROM PortfolioAccounts ORDER BY Name`
+        ).all();
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        console.error("GET /api/portfolio/accounts error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/portfolio/accounts  body: { name }
+app.post("/api/portfolio/accounts", (req, res) => {
+    try {
+        const name = String(req.body.name || "").trim();
+        if (!name) return res.status(400).json({ success: false, error: "name required" });
+        const info = db.prepare(`INSERT INTO PortfolioAccounts (Name) VALUES (?)`).run(name);
+        res.json({ success: true, data: { id: info.lastInsertRowid, name } });
+    } catch (err) {
+        console.error("POST /api/portfolio/accounts error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PATCH /api/portfolio/accounts/:id  body: { name }
+app.patch("/api/portfolio/accounts/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const name = String(req.body.name || "").trim();
+        if (!name) return res.status(400).json({ success: false, error: "name required" });
+        const info = db.prepare(`UPDATE PortfolioAccounts SET Name = ?, UpdatedAt = CURRENT_TIMESTAMP WHERE AccountID = ?`).run(name, id);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: "account not found" });
+        res.json({ success: true, data: { id, name } });
+    } catch (err) {
+        console.error("PATCH /api/portfolio/accounts error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/portfolio/accounts/:id
+app.delete("/api/portfolio/accounts/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const info = db.prepare(`DELETE FROM PortfolioAccounts WHERE AccountID = ?`).run(id);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: "account not found" });
+        res.json({ success: true });
+    } catch (err) {
+        console.error("DELETE /api/portfolio/accounts error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/portfolio/holdings  — flat list across all accounts (Account is a column, not a filter)
+app.get("/api/portfolio/holdings", (req, res) => {
+    try {
+        const rows = db.prepare(`${holdingsBaseQuery} ORDER BY c.TickerSymbol`).all();
+        res.json({ success: true, data: withHoldingMetrics(rows) });
+    } catch (err) {
+        console.error("GET /api/portfolio/holdings error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/portfolio/holdings  body: { accountId, tickerSymbol }
+app.post("/api/portfolio/holdings", (req, res) => {
+    try {
+        const accountId = Number(req.body.accountId);
+        const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
+        if (!accountId || !ticker) return res.status(400).json({ success: false, error: "accountId and tickerSymbol required" });
+
+        const account = db.prepare(`SELECT AccountID FROM PortfolioAccounts WHERE AccountID = ?`).get(accountId);
+        if (!account) return res.status(404).json({ success: false, error: "account not found" });
+
+        const company = db.prepare(`SELECT TickerSymbol, AssetType FROM Companies WHERE TickerSymbol = ?`).get(ticker);
+        if (!company || !["STOCK", "ETF"].includes(String(company.AssetType).toUpperCase())) {
+            return res.status(400).json({ success: false, error: `${ticker} is not a known stock/ETF in Companies` });
+        }
+
+        const info = db.prepare(`INSERT INTO PortfolioHoldings (AccountID, TickerSymbol) VALUES (?, ?)`).run(accountId, ticker);
+        const row = db.prepare(`${holdingsBaseQuery} WHERE h.HoldingID = ?`).get(info.lastInsertRowid);
+        res.json({ success: true, data: withHoldingMetrics([row])[0] });
+    } catch (err) {
+        if (String(err.message).includes("UNIQUE")) {
+            return res.status(400).json({ success: false, error: "That account already holds this ticker" });
+        }
+        console.error("POST /api/portfolio/holdings error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PATCH /api/portfolio/holdings/:id
+// body: any of { allocationPct, basisPrice, currentShares, sharesToHold, holdingsCount, distributionPerYear, status, taxForm }
+app.patch("/api/portfolio/holdings/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const existing = db.prepare(`SELECT HoldingID FROM PortfolioHoldings WHERE HoldingID = ?`).get(id);
+        if (!existing) return res.status(404).json({ success: false, error: "holding not found" });
+
+        const fieldMap = {
+            allocationPct: "AllocationPct",
+            basisPrice: "BasisPrice",
+            currentShares: "CurrentShares",
+            sharesToHold: "SharesToHold",
+            holdingsCount: "HoldingsCount",
+            distributionPerYear: "DistributionPerYear",
+            status: "Status",
+            taxForm: "TaxForm",
+        };
+        const sets = [];
+        const values = [];
+        for (const [key, column] of Object.entries(fieldMap)) {
+            if (key in req.body) {
+                sets.push(`${column} = ?`);
+                values.push(req.body[key]);
+            }
+        }
+        if (sets.length === 0) return res.status(400).json({ success: false, error: "no editable fields provided" });
+
+        sets.push("UpdatedAt = CURRENT_TIMESTAMP");
+        values.push(id);
+        db.prepare(`UPDATE PortfolioHoldings SET ${sets.join(", ")} WHERE HoldingID = ?`).run(...values);
+
+        const row = db.prepare(`${holdingsBaseQuery} WHERE h.HoldingID = ?`).get(id);
+        res.json({ success: true, data: withHoldingMetrics([row])[0] });
+    } catch (err) {
+        console.error("PATCH /api/portfolio/holdings error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/portfolio/holdings/:id
+app.delete("/api/portfolio/holdings/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const info = db.prepare(`DELETE FROM PortfolioHoldings WHERE HoldingID = ?`).run(id);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: "holding not found" });
+        res.json({ success: true });
+    } catch (err) {
+        console.error("DELETE /api/portfolio/holdings error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/portfolio/transactions?accountId=&tickerSymbol=&limit=
+app.get("/api/portfolio/transactions", (req, res) => {
+    try {
+        const clauses = [];
+        const params = [];
+        if (req.query.accountId) { clauses.push("t.AccountID = ?"); params.push(Number(req.query.accountId)); }
+        if (req.query.tickerSymbol) { clauses.push("t.TickerSymbol = ?"); params.push(String(req.query.tickerSymbol).toUpperCase()); }
+        const where = clauses.length ? `WHERE ${clauses.join(" AND ")}` : "";
+        const limit = parseInt(req.query.limit, 10) || 500;
+
+        const rows = db.prepare(`
+            SELECT t.TransactionID AS id, t.AccountID AS accountId, a.Name AS accountName,
+                   t.TickerSymbol AS tickerSymbol, t.TransactionDate AS transactionDate,
+                   t.TransactionType AS transactionType, t.Shares AS shares, t.Price AS price,
+                   t.DividendAmount AS dividendAmount
+            FROM PortfolioTransactions t
+            JOIN PortfolioAccounts a ON a.AccountID = t.AccountID
+            ${where}
+            ORDER BY t.TransactionDate DESC, t.TransactionID DESC
+            LIMIT ?
+        `).all(...params, limit);
+        res.json({ success: true, data: rows });
+    } catch (err) {
+        console.error("GET /api/portfolio/transactions error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/portfolio/transactions
+// body: { accountId, tickerSymbol, transactionDate, transactionType, shares?, price?, dividendAmount? }
+app.post("/api/portfolio/transactions", (req, res) => {
+    try {
+        const accountId = Number(req.body.accountId);
+        const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
+        const transactionDate = String(req.body.transactionDate || "").trim();
+        const transactionType = String(req.body.transactionType || "").trim();
+
+        if (!accountId || !ticker || !transactionDate || !["Bought", "Sold", "Dividend"].includes(transactionType)) {
+            return res.status(400).json({ success: false, error: "accountId, tickerSymbol, transactionDate, and a valid transactionType are required" });
+        }
+
+        const info = db.prepare(`
+            INSERT INTO PortfolioTransactions (AccountID, TickerSymbol, TransactionDate, TransactionType, Shares, Price, DividendAmount)
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+        `).run(accountId, ticker, transactionDate, transactionType, req.body.shares ?? null, req.body.price ?? null, req.body.dividendAmount ?? null);
+
+        res.json({ success: true, data: { id: info.lastInsertRowid } });
+    } catch (err) {
+        console.error("POST /api/portfolio/transactions error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/portfolio/transactions/:id
+app.delete("/api/portfolio/transactions/:id", (req, res) => {
+    try {
+        const id = Number(req.params.id);
+        const info = db.prepare(`DELETE FROM PortfolioTransactions WHERE TransactionID = ?`).run(id);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: "transaction not found" });
+        res.json({ success: true });
+    } catch (err) {
+        console.error("DELETE /api/portfolio/transactions error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// GET /api/portfolio/performance — monthly dividend totals across all holdings,
+// for the Performance Tracker (running list + bar chart). Annual total resets each January.
+app.get("/api/portfolio/performance", (req, res) => {
+    try {
+        const rows = db.prepare(`
+            SELECT strftime('%Y', TransactionDate) AS year,
+                   strftime('%m', TransactionDate) AS month,
+                   SUM(DividendAmount) AS total
+            FROM PortfolioTransactions
+            WHERE TransactionType = 'Dividend'
+            GROUP BY year, month
+            ORDER BY year, month
+        `).all();
+
+        let runningYear = null;
+        let annualTotal = 0;
+        const data = rows.map(r => {
+            if (r.year !== runningYear) { runningYear = r.year; annualTotal = 0; }
+            annualTotal += r.total;
+            return {
+                year: Number(r.year),
+                month: Number(r.month),
+                monthLabel: `${r.year}-${r.month}`,
+                total: r.total,
+                annualTotal,
+            };
+        });
+
+        res.json({ success: true, data });
+    } catch (err) {
+        console.error("GET /api/portfolio/performance error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Backend listening on http://localhost:${PORT}`);
 });

@@ -3,13 +3,14 @@ import { TradingViewPriceChart } from "./TradingViewPriceChart";
 import { fetchAnnotations, saveAnnotation, deleteAnnotation } from "./services/annotationApi";
 import { WatchlistPanel } from "./WatchlistPanel";
 import { AssetWatchlistTab } from "./AssetWatchlistTab";
+import { PortfolioTab } from "./PortfolioTab";
 import type { WatchlistEntry } from "./services/watchlistApi";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Annotation, ChartKey } from "./types/annotations";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
-type Tool = "select" | "trendline";
+type Tool = "select" | "trendline" | "rectangle";
 
 type CandlePoint = {
     time: string;
@@ -533,6 +534,19 @@ export default function App() {
                         Trendline
                     </button>
                     <button
+                        onClick={() => setActiveTool("rectangle")}
+                        title="Draw a rectangle to mark a consolidation area"
+                        style={{
+                            padding: "4px 10px",
+                            background: activeTool === "rectangle" ? "#555" : "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        Rectangle
+                    </button>
+                    <button
                         onClick={handleDeleteSelected}
                         disabled={!selectedAnnotationId}
                         style={{ padding: "4px 10px", opacity: selectedAnnotationId ? 1 : 0.4, cursor: selectedAnnotationId ? "pointer" : "default" }}
@@ -636,38 +650,42 @@ export default function App() {
                                 </button>
                             ))}
 
-                            {/* Extend left / right toggles */}
-                            <span style={{ color: "#aaa", fontSize: 12, marginLeft: 4 }}>Extend:</span>
-                            <button
-                                title="Extend line to left edge"
-                                onClick={() => handleStyleAnnotation(selectedAnnotationId, { extendLeft: !currentExtendLeft })}
-                                style={{
-                                    padding: "2px 8px",
-                                    background: currentExtendLeft ? "#555" : "#222",
-                                    color: "#fff",
-                                    border: "1px solid #666",
-                                    cursor: "pointer",
-                                    fontSize: 13,
-                                    fontWeight: currentExtendLeft ? "bold" : "normal",
-                                }}
-                            >
-                                &#8592;
-                            </button>
-                            <button
-                                title="Extend line to right edge"
-                                onClick={() => handleStyleAnnotation(selectedAnnotationId, { extendRight: !currentExtendRight })}
-                                style={{
-                                    padding: "2px 8px",
-                                    background: currentExtendRight ? "#555" : "#222",
-                                    color: "#fff",
-                                    border: "1px solid #666",
-                                    cursor: "pointer",
-                                    fontSize: 13,
-                                    fontWeight: currentExtendRight ? "bold" : "normal",
-                                }}
-                            >
-                                &#8594;
-                            </button>
+                            {/* Extend left / right toggles — trendlines only; a rectangle has no direction to extend */}
+                            {ann.type === "trendline" && (
+                                <>
+                                    <span style={{ color: "#aaa", fontSize: 12, marginLeft: 4 }}>Extend:</span>
+                                    <button
+                                        title="Extend line to left edge"
+                                        onClick={() => handleStyleAnnotation(selectedAnnotationId, { extendLeft: !currentExtendLeft })}
+                                        style={{
+                                            padding: "2px 8px",
+                                            background: currentExtendLeft ? "#555" : "#222",
+                                            color: "#fff",
+                                            border: "1px solid #666",
+                                            cursor: "pointer",
+                                            fontSize: 13,
+                                            fontWeight: currentExtendLeft ? "bold" : "normal",
+                                        }}
+                                    >
+                                        &#8592;
+                                    </button>
+                                    <button
+                                        title="Extend line to right edge"
+                                        onClick={() => handleStyleAnnotation(selectedAnnotationId, { extendRight: !currentExtendRight })}
+                                        style={{
+                                            padding: "2px 8px",
+                                            background: currentExtendRight ? "#555" : "#222",
+                                            color: "#fff",
+                                            border: "1px solid #666",
+                                            cursor: "pointer",
+                                            fontSize: 13,
+                                            fontWeight: currentExtendRight ? "bold" : "normal",
+                                        }}
+                                    >
+                                        &#8594;
+                                    </button>
+                                </>
+                            )}
                         </div>
                     );
                 })()}
@@ -717,13 +735,8 @@ export default function App() {
             {/* Watchlist tab */}
             {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenChartSymbol} />}
 
-            {/* Portfolio tab placeholder */}
-            {activeTab === "portfolio" && (
-                <div style={{ flex: 1, padding: 24, color: "#94a3b8" }}>
-                    <h3 style={{ color: "#e2e8f0", marginTop: 0 }}>Portfolio</h3>
-                    <p>Coming soon.</p>
-                </div>
-            )}
+            {/* Portfolio tab */}
+            {activeTab === "portfolio" && <PortfolioTab onOpenChart={handleOpenChartSymbol} />}
 
             {/* Watchlist sidebar — always visible */}
             <WatchlistPanel

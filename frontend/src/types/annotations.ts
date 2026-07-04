@@ -1,5 +1,5 @@
-export type AnnotationTool = 'select' | 'trendline';
-export type AnnotationType = 'trendline';
+export type AnnotationTool = 'select' | 'trendline' | 'rectangle';
+export type AnnotationType = 'trendline' | 'rectangle';
 
 export interface ChartKey {
     mode: 'R' | 'S';
@@ -32,7 +32,18 @@ export interface TrendlineAnnotation {
     updatedAt: string;
 }
 
-export type Annotation = TrendlineAnnotation;
+export interface RectangleAnnotation {
+    id: string;
+    type: 'rectangle';
+    chartKey: ChartKey;
+    points: [TimePricePoint, TimePricePoint]; // opposite corners, in either order
+    style: AnnotationStyle;
+    locked?: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type Annotation = TrendlineAnnotation | RectangleAnnotation;
 
 export interface AnnotationResponse {
     success: boolean;

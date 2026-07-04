@@ -31,7 +31,7 @@ type VolumePoint = {
     color: string;
 };
 
-type Tool = "select" | "trendline";
+type Tool = "select" | "trendline" | "rectangle";
 
 type Props = {
     data: CandlePoint[] | RatioPoint[];
@@ -61,6 +61,17 @@ type OverlayLine = {
     dashArray?: string;
     extendLeft: boolean;
     extendRight: boolean;
+};
+
+type OverlayRect = {
+    id: string;
+    x1: number;
+    y1: number;
+    x2: number;
+    y2: number;
+    color: string;
+    width: number;
+    dashArray?: string;
 };
 
 function toLineDash(lineStyle?: string): string | undefined {
@@ -167,6 +178,7 @@ export function TradingViewPriceChart({
     useEffect(() => { dataRef.current = data; }, [data]);
 
     const [overlayLines, setOverlayLines] = useState<OverlayLine[]>([]);
+    const [overlayRects, setOverlayRects] = useState<OverlayRect[]>([]);
     const [chartWidth, setChartWidth] = useState(0);
     const [renderKey, setRenderKey] = useState(0);
     // Inner pane dimensions — excludes price scale (right) and time axis (bottom).
@@ -212,6 +224,25 @@ export function TradingViewPriceChart({
         return distance(px, py, cx, cy);
     }
 
+    // True when (x,y) is near a rectangle's border (like a trendline's hit band) —
+    // deliberately NOT "anywhere inside the box": a filled hit-area that size would
+    // swallow every click/drag/pan inside a wide consolidation-area box, effectively
+    // freezing chart interaction under it.
+    function hitTestRectangle(x: number, y: number, rect: OverlayRect): boolean {
+        const tolerance = 8;
+        const left = Math.min(rect.x1, rect.x2);
+        const right = Math.max(rect.x1, rect.x2);
+        const top = Math.min(rect.y1, rect.y2);
+        const bottom = Math.max(rect.y1, rect.y2);
+
+        const dLeft = distancePointToSegment(x, y, left, top, left, bottom);
+        const dRight = distancePointToSegment(x, y, right, top, right, bottom);
+        const dTop = distancePointToSegment(x, y, left, top, right, top);
+        const dBottom = distancePointToSegment(x, y, left, bottom, right, bottom);
+
+        return Math.min(dLeft, dRight, dTop, dBottom) <= tolerance;
+    }
+
     function hitTestAnnotation(x: number, y: number): string | null {
         const endpointRadius = 8;
         const lineTolerance = 6;
@@ -240,16 +271,31 @@ export function TradingViewPriceChart({
             }
         }
 
+        for (let i = overlayRects.length - 1; i >= 0; i--) {
+            if (hitTestRectangle(x, y, overlayRects[i])) return overlayRects[i].id;
+        }
+
         return null;
     }
 
-    // Returns which endpoint (0 or 1) of a selected line is under the cursor, or null.
-    function hitTestEndpoint(x: number, y: number, lineId: string): 0 | 1 | null {
+    // Returns which endpoint (0 or 1) of a selected line/rectangle is under the cursor, or null.
+    function hitTestEndpoint(x: number, y: number, annotationId: string): 0 | 1 | null {
         const endpointRadius = 10; // slightly larger grab target than visual radius
-        const line = overlayLines.find((l) => l.id === lineId);
-        if (!line) return null;
-        if (distance(x, y, line.x1, line.y1) <= endpointRadius) return 0;
-        if (distance(x, y, line.x2, line.y2) <= endpointRadius) return 1;
+
+        const line = overlayLines.find((l) => l.id === annotationId);
+        if (line) {
+            if (distance(x, y, line.x1, line.y1) <= endpointRadius) return 0;
+            if (distance(x, y, line.x2, line.y2) <= endpointRadius) return 1;
+            return null;
+        }
+
+        const rect = overlayRects.find((r) => r.id === annotationId);
+        if (rect) {
+            if (distance(x, y, rect.x1, rect.y1) <= endpointRadius) return 0;
+            if (distance(x, y, rect.x2, rect.y2) <= endpointRadius) return 1;
+            return null;
+        }
+
         return null;
     }
 
@@ -562,11 +608,13 @@ export function TradingViewPriceChart({
     useEffect(() => {
         if (!chartRef.current || !seriesRef.current || !containerRef.current) {
             setOverlayLines([]);
+            setOverlayRects([]);
             return;
         }
 
         if (!data || data.length === 0) {
             setOverlayLines([]);
+            setOverlayRects([]);
             return;
         }
 
@@ -574,9 +622,10 @@ export function TradingViewPriceChart({
         const series = seriesRef.current;
 
         const lines: OverlayLine[] = [];
+        const rects: OverlayRect[] = [];
 
         for (const ann of overlayDeps.annotations) {
-            if (ann.type !== "trendline") continue;
+            if (ann.type !== "trendline" && ann.type !== "rectangle") continue;
 
             const [p1, p2] = ann.points;
 
@@ -598,25 +647,39 @@ export function TradingViewPriceChart({
                 continue;
             }
 
-            lines.push({
-                id: ann.id,
-                x1,
-                y1,
-                x2,
-                y2,
-                color: ann.style?.color || "#4aa3ff",
-                width: ann.style?.lineWidth || 2,
-                dashArray: toLineDash(ann.style?.lineStyle),
-                extendLeft: ann.style?.extendLeft ?? false,
-                extendRight: ann.style?.extendRight ?? false,
-            });
+            if (ann.type === "trendline") {
+                lines.push({
+                    id: ann.id,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color: ann.style?.color || "#4aa3ff",
+                    width: ann.style?.lineWidth || 2,
+                    dashArray: toLineDash(ann.style?.lineStyle),
+                    extendLeft: ann.style?.extendLeft ?? false,
+                    extendRight: ann.style?.extendRight ?? false,
+                });
+            } else {
+                rects.push({
+                    id: ann.id,
+                    x1,
+                    y1,
+                    x2,
+                    y2,
+                    color: ann.style?.color || "#4aa3ff",
+                    width: ann.style?.lineWidth || 2,
+                    dashArray: toLineDash(ann.style?.lineStyle),
+                });
+            }
         }
 
         setOverlayLines(lines);
+        setOverlayRects(rects);
     }, [overlayDeps]);
 
     useEffect(() => {
-        if (activeTool !== "trendline") {
+        if (activeTool !== "trendline" && activeTool !== "rectangle") {
             setDraftStart(null);
             setDraftEnd(null);
         }
@@ -709,7 +772,7 @@ export function TradingViewPriceChart({
                     // Otherwise pass events through to the chart (pan/zoom/scroll).
                     // Individual line/circle elements have their own pointerEvents:auto
                     // so click-to-select and endpoint dragging still work in select mode.
-                    pointerEvents: (activeTool === "trendline" || !!dragEndpoint.current) ? "auto" : "none",
+                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || !!dragEndpoint.current) ? "auto" : "none",
                     overflow: "visible",
                     zIndex: 20,
                     cursor: dragEndpoint.current ? "crosshair" : "default",
@@ -745,7 +808,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline") return;
+                    if (activeTool !== "trendline" && activeTool !== "rectangle") return;
 
                     setDraftStart({ x, y });
                     setDraftEnd({ x, y });
@@ -764,7 +827,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline" || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle") || !isDrawing || !draftStart) return;
                     setDraftEnd({ x, y });
                 }}
                 onMouseUp={(e) => {
@@ -795,7 +858,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline" || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle") || !isDrawing || !draftStart) return;
 
                     setDraftEnd({ x, y });
                     setIsDrawing(false);
@@ -811,22 +874,38 @@ export function TradingViewPriceChart({
 
                     const now = new Date().toISOString();
 
-                    const annotation: Annotation = {
-                        id: `ann-${Date.now()}`,
-                        type: "trendline",
-                        chartKey,
-                        points: [p1, p2],
-                        style: {
-                            color: "#4aa3ff",
-                            lineWidth: 2,
-                            lineStyle: "solid",
-                            extendLeft: false,
-                            extendRight: false,
-                        },
-                        locked: false,
-                        createdAt: now,
-                        updatedAt: now,
-                    };
+                    const annotation: Annotation =
+                        activeTool === "rectangle"
+                            ? {
+                                id: `ann-${Date.now()}`,
+                                type: "rectangle",
+                                chartKey,
+                                points: [p1, p2],
+                                style: {
+                                    color: "#4aa3ff",
+                                    lineWidth: 2,
+                                    lineStyle: "solid",
+                                },
+                                locked: false,
+                                createdAt: now,
+                                updatedAt: now,
+                            }
+                            : {
+                                id: `ann-${Date.now()}`,
+                                type: "trendline",
+                                chartKey,
+                                points: [p1, p2],
+                                style: {
+                                    color: "#4aa3ff",
+                                    lineWidth: 2,
+                                    lineStyle: "solid",
+                                    extendLeft: false,
+                                    extendRight: false,
+                                },
+                                locked: false,
+                                createdAt: now,
+                                updatedAt: now,
+                            };
 
                     onCreateAnnotation(annotation);
                     setDraftStart(null);
@@ -913,6 +992,83 @@ export function TradingViewPriceChart({
                     );
                 })}
 
+                {overlayRects.map((rectAnn) => {
+                    const isSelected = rectAnn.id === selectedAnnotationId;
+
+                    const drag = dragEndpoint.current;
+                    const isDraggingThis = drag && drag.annotationId === rectAnn.id;
+                    const ax1 = isDraggingThis && drag.endpoint === 0 ? drag.liveX : rectAnn.x1;
+                    const ay1 = isDraggingThis && drag.endpoint === 0 ? drag.liveY : rectAnn.y1;
+                    const ax2 = isDraggingThis && drag.endpoint === 1 ? drag.liveX : rectAnn.x2;
+                    const ay2 = isDraggingThis && drag.endpoint === 1 ? drag.liveY : rectAnn.y2;
+
+                    const rx = Math.min(ax1, ax2);
+                    const ry = Math.min(ay1, ay2);
+                    const rw = Math.abs(ax2 - ax1);
+                    const rh = Math.abs(ay2 - ay1);
+
+                    return (
+                        <React.Fragment key={rectAnn.id}>
+                            {/* Fill wash — purely visual, never captures pointer events so the
+                                chart underneath stays pannable/zoomable/clickable through the interior. */}
+                            <rect
+                                x={rx}
+                                y={ry}
+                                width={rw}
+                                height={rh}
+                                fill={rectAnn.color}
+                                fillOpacity={0.12}
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                                style={{ pointerEvents: "none" }}
+                            />
+                            {/* Invisible wide border for easier hit-testing (mirrors the trendline's wide stroke) */}
+                            <rect
+                                x={rx}
+                                y={ry}
+                                width={rw}
+                                height={rh}
+                                fill="none"
+                                stroke="transparent"
+                                strokeWidth={16}
+                                style={{ pointerEvents: "auto", cursor: "pointer" }}
+                            />
+                            {/* Visible border stroke */}
+                            <rect
+                                x={rx}
+                                y={ry}
+                                width={rw}
+                                height={rh}
+                                fill="none"
+                                stroke={rectAnn.color}
+                                strokeWidth={isSelected ? rectAnn.width + 1 : rectAnn.width}
+                                strokeDasharray={rectAnn.dashArray}
+                                opacity={isSelected ? 1 : 0.9}
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                                style={{ pointerEvents: "none" }}
+                            />
+                            {/* Corner handles at the original anchor points */}
+                            <circle
+                                cx={ax1}
+                                cy={ay1}
+                                r={isSelected ? 7 : 5}
+                                fill={isDraggingThis && drag.endpoint === 0 ? "#22c55e" : rectAnn.color}
+                                stroke={isSelected ? "#ffffff" : "none"}
+                                strokeWidth={isSelected ? 2 : 0}
+                                style={{ pointerEvents: "auto", cursor: isSelected ? "grab" : "pointer" }}
+                            />
+                            <circle
+                                cx={ax2}
+                                cy={ay2}
+                                r={isSelected ? 7 : 5}
+                                fill={isDraggingThis && drag.endpoint === 1 ? "#22c55e" : rectAnn.color}
+                                stroke={isSelected ? "#ffffff" : "none"}
+                                strokeWidth={isSelected ? 2 : 0}
+                                style={{ pointerEvents: "auto", cursor: isSelected ? "grab" : "pointer" }}
+                            />
+                        </React.Fragment>
+                    );
+                })}
+
                 {/* Centered watermark — renders behind all annotation lines */}
                 {watermark && (
                     <text
@@ -934,7 +1090,26 @@ export function TradingViewPriceChart({
                     </text>
                 )}
 
-                {draftStart && draftEnd && (
+                {draftStart && draftEnd && activeTool === "rectangle" && (
+                    <React.Fragment>
+                        <rect
+                            x={Math.min(draftStart.x, draftEnd.x)}
+                            y={Math.min(draftStart.y, draftEnd.y)}
+                            width={Math.abs(draftEnd.x - draftStart.x)}
+                            height={Math.abs(draftEnd.y - draftStart.y)}
+                            fill="#22c55e"
+                            fillOpacity={0.12}
+                            stroke="#22c55e"
+                            strokeWidth={2}
+                            strokeDasharray="6 4"
+                            clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                        />
+                        <circle cx={draftStart.x} cy={draftStart.y} r={5} fill="#22c55e" />
+                        <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill="#22c55e" />
+                    </React.Fragment>
+                )}
+
+                {draftStart && draftEnd && activeTool === "trendline" && (
                     <React.Fragment>
                         <line
                             x1={draftStart.x}
