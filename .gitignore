@@ -4,3 +4,4 @@ data/*.db
 backend/logs/
 __pycache__/
 *.pyc
+backend_start.log
