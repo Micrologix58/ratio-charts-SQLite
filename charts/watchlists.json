@@ -58,6 +58,10 @@
       {
         "type": "R",
         "expression": "USAS/C:XAUUSD"
+      },
+      {
+        "type": "S",
+        "symbol": "SILJ"
       }
     ]
   },
@@ -72,6 +76,10 @@
       {
         "type": "R",
         "expression": "NEHI/GLD"
+      },
+      {
+        "type": "S",
+        "symbol": "BLOX"
       }
     ]
   },
@@ -104,6 +112,30 @@
       {
         "type": "S",
         "symbol": "USO"
+      },
+      {
+        "type": "S",
+        "symbol": "XOM"
+      },
+      {
+        "type": "S",
+        "symbol": "XLE"
+      },
+      {
+        "type": "S",
+        "symbol": "XOP"
+      },
+      {
+        "type": "S",
+        "symbol": "CVX"
+      },
+      {
+        "type": "S",
+        "symbol": "MLPI"
+      },
+      {
+        "type": "S",
+        "symbol": "OIH"
       }
     ]
   },
@@ -114,6 +146,10 @@
       {
         "type": "S",
         "symbol": "RIO"
+      },
+      {
+        "type": "S",
+        "symbol": "COPX"
       }
     ]
   },
@@ -132,6 +168,91 @@
       {
         "type": "S",
         "symbol": "POR"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783170396317",
+    "name": "Indexes",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "SPYI"
+      },
+      {
+        "type": "S",
+        "symbol": "QQQI"
+      },
+      {
+        "type": "S",
+        "symbol": "SPY"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783170473277",
+    "name": "CC ETFS",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "QQQI"
+      },
+      {
+        "type": "S",
+        "symbol": "SPYI"
+      },
+      {
+        "type": "S",
+        "symbol": "JEPQ"
+      },
+      {
+        "type": "S",
+        "symbol": "JEPI"
+      },
+      {
+        "type": "S",
+        "symbol": "IWMI"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783268179930",
+    "name": "Growth",
+    "entries": []
+  },
+  {
+    "id": "wl-1783270759527",
+    "name": "Rates",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "US2YR"
+      },
+      {
+        "type": "S",
+        "symbol": "US10YR"
+      },
+      {
+        "type": "S",
+        "symbol": "US30YR"
+      },
+      {
+        "type": "S",
+        "symbol": "TLT"
+      },
+      {
+        "type": "R",
+        "expression": "US2YR/US10YR"
+      }
+    ]
+  },
+  {
+    "id": "wl-1783635195469",
+    "name": "Gold Stocks",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "USAS"
       }
     ]
   }
