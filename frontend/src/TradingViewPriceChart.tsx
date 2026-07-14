@@ -31,7 +31,7 @@ type VolumePoint = {
     color: string;
 };
 
-type Tool = "select" | "trendline" | "rectangle";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline";
 
 type Props = {
     data: CandlePoint[] | RatioPoint[];
@@ -299,10 +299,11 @@ export function TradingViewPriceChart({
         return null;
     }
 
-    function screenToTimePrice(x: number, _y: number) {
+    function screenToTimePrice(x: number, y: number) {
         if (!chartRef.current || !seriesRef.current || !data.length) return null;
 
         const chart = chartRef.current;
+        const series = seriesRef.current;
 
         let nearestIndex = -1;
         let nearestDistance = Number.POSITIVE_INFINITY;
@@ -322,7 +323,10 @@ export function TradingViewPriceChart({
 
         const point = data[nearestIndex];
         const time = point.time;
-        const price = getPriceAtPoint(point);
+        // Use the true pixel-derived price rather than snapping to the nearest bar's
+        // close — only the time axis is inherently bar-indexed, the price axis is continuous.
+        const coordPrice = series.coordinateToPrice(y);
+        const price = coordPrice != null && Number.isFinite(coordPrice) ? coordPrice : getPriceAtPoint(point);
 
         return { time, price };
     }
@@ -601,8 +605,9 @@ export function TradingViewPriceChart({
             isRatio,
             chartWidth,
             renderKey,
+            paneWidth,
         }),
-        [annotations, data, isRatio, chartWidth, renderKey]
+        [annotations, data, isRatio, chartWidth, renderKey, paneWidth]
     );
 
     useEffect(() => {
@@ -625,7 +630,26 @@ export function TradingViewPriceChart({
         const rects: OverlayRect[] = [];
 
         for (const ann of overlayDeps.annotations) {
-            if (ann.type !== "trendline" && ann.type !== "rectangle") continue;
+            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline") continue;
+
+            if (ann.type === "horizontalline") {
+                const y = series.priceToCoordinate(ann.points[0].price);
+                if (y == null || !Number.isFinite(y)) continue;
+
+                lines.push({
+                    id: ann.id,
+                    x1: 0,
+                    y1: y,
+                    x2: paneWidth,
+                    y2: y,
+                    color: ann.style?.color || "#4aa3ff",
+                    width: ann.style?.lineWidth || 2,
+                    dashArray: toLineDash(ann.style?.lineStyle),
+                    extendLeft: false,
+                    extendRight: false,
+                });
+                continue;
+            }
 
             const [p1, p2] = ann.points;
 
@@ -772,7 +796,7 @@ export function TradingViewPriceChart({
                     // Otherwise pass events through to the chart (pan/zoom/scroll).
                     // Individual line/circle elements have their own pointerEvents:auto
                     // so click-to-select and endpoint dragging still work in select mode.
-                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || !!dragEndpoint.current) ? "auto" : "none",
+                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || !!dragEndpoint.current) ? "auto" : "none",
                     overflow: "visible",
                     zIndex: 20,
                     cursor: dragEndpoint.current ? "crosshair" : "default",
@@ -805,6 +829,28 @@ export function TradingViewPriceChart({
                         // Otherwise hit-test for a new selection
                         const hitId = hitTestAnnotation(x, y);
                         onSelectAnnotation?.(hitId);
+                        return;
+                    }
+
+                    if (activeTool === "horizontalline") {
+                        const anchor = screenToTimePrice(x, y);
+                        if (anchor && onCreateAnnotation) {
+                            const now = new Date().toISOString();
+                            onCreateAnnotation({
+                                id: `ann-${Date.now()}`,
+                                type: "horizontalline",
+                                chartKey,
+                                points: [anchor, anchor],
+                                style: {
+                                    color: "#4aa3ff",
+                                    lineWidth: 2,
+                                    lineStyle: "solid",
+                                },
+                                locked: false,
+                                createdAt: now,
+                                updatedAt: now,
+                            });
+                        }
                         return;
                     }
 
@@ -849,6 +895,17 @@ export function TradingViewPriceChart({
                         if (!ann) return;
 
                         const [p0, p1] = ann.points;
+
+                        // Horizontal lines have no meaningful per-endpoint time — dragging either
+                        // endpoint moves the whole line to the new price, keeping both points' times.
+                        if (ann.type === "horizontalline") {
+                            onUpdateAnnotation(annotationId, [
+                                { time: p0.time, price: newAnchor.price },
+                                { time: p1.time, price: newAnchor.price },
+                            ]);
+                            return;
+                        }
+
                         const updatedPoints: [{ time: string; price: number }, { time: string; price: number }] =
                             endpoint === 0
                                 ? [newAnchor, p1]

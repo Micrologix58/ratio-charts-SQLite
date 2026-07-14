@@ -5,6 +5,7 @@ import {
     fetchStockRankings,
     fetchEtfRankings,
 } from './services/assetWatchlistApi';
+import { useSortableRows } from './hooks/useSortableRows';
 
 type Props = {
     activeWatchlistId: number | null;
@@ -92,13 +93,27 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
                 };
             });
 
-            merged.sort((a, b) => (b.rank ?? -1) - (a.rank ?? -1));
             setRows(merged);
             setLoading(false);
         });
 
         return () => { cancelled = true; };
     }, [activeWatchlistId, refreshToken]);
+
+    type SortKey = 'ticker' | 'name' | 'appr' | 'yield' | 'rank';
+    const { sortedRows, requestSort, sortIndicator } = useSortableRows<Row, SortKey>(
+        rows ?? [],
+        (row, key) => {
+            switch (key) {
+                case 'ticker': return row.tickerSymbol;
+                case 'name': return row.companyName;
+                case 'appr': return row.price1yrApprPct;
+                case 'yield': return row.yieldPct;
+                case 'rank': return row.rank;
+            }
+        },
+        { key: 'rank', direction: 'desc' }
+    );
 
     const thStyle: React.CSSProperties = {
         textAlign: 'left',
@@ -128,20 +143,22 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
         return <div style={{ color: '#555', marginTop: 16 }}>No assets — press + Stock / + ETF on the right to add some.</div>;
     }
 
+    const sortableThStyle: React.CSSProperties = { ...thStyle, cursor: 'pointer', userSelect: 'none' };
+
     return (
         <table style={{ width: '100%', borderCollapse: 'collapse', marginTop: 16, fontSize: 13 }}>
             <thead>
                 <tr>
                     <th style={thStyle}></th>
-                    <th style={thStyle}>Ticker</th>
-                    <th style={thStyle}>Name</th>
-                    <th style={thStyle}>1yr Appr.</th>
-                    <th style={thStyle}>Yield</th>
-                    <th style={thStyle}>Rank</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('ticker')}>Ticker{sortIndicator('ticker')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('name')}>Name{sortIndicator('name')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('appr')}>1yr Appr.{sortIndicator('appr')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('yield')}>Yield{sortIndicator('yield')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('rank')}>Rank{sortIndicator('rank')}</th>
                 </tr>
             </thead>
             <tbody>
-                {rows.map(row => {
+                {sortedRows.map(row => {
                     const isEtf = row.assetType.toUpperCase() === 'ETF';
                     return (
                         <tr key={row.tickerSymbol}>

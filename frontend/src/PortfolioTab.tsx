@@ -1,4 +1,4 @@
-import React, { useEffect, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import {
     type PortfolioAccount,
     type PortfolioHolding,
@@ -14,6 +14,7 @@ import { type AssetInfo, fetchAssetUniverse } from './services/assetWatchlistApi
 import { TickerSummaryModal } from './TickerSummaryModal';
 import { PerformanceTrackerModal } from './PerformanceTrackerModal';
 import { TickerDataEntryModal } from './TickerDataEntryModal';
+import { buildComparator, useSortableRows } from './hooks/useSortableRows';
 
 type Props = {
     onOpenChart: (ticker: string) => void;
@@ -49,6 +50,33 @@ function money(v: number | null | undefined): string {
 
 function pct(v: number | null | undefined): string {
     return v == null ? '—' : `${v.toFixed(2)}%`;
+}
+
+type HoldingSortKey =
+    | 'ticker' | 'company' | 'account' | 'alloc' | 'basisPrice' | 'currentPrice'
+    | 'currentShares' | 'sharesToHold' | 'investedBasis' | 'holdingsCount' | 'value'
+    | 'pctOfHoldings' | 'distPerYear' | 'yield' | 'annualIncome' | 'status' | 'taxForm';
+
+function getHoldingSortValue(h: PortfolioHolding, key: HoldingSortKey): string | number | null | undefined {
+    switch (key) {
+        case 'ticker': return h.tickerSymbol;
+        case 'company': return h.companyName;
+        case 'account': return h.accountName;
+        case 'alloc': return h.allocationPct;
+        case 'basisPrice': return h.basisPrice;
+        case 'currentPrice': return h.currentPrice;
+        case 'currentShares': return h.currentShares;
+        case 'sharesToHold': return h.sharesToHold;
+        case 'investedBasis': return h.investedBasis;
+        case 'holdingsCount': return h.holdingsCount;
+        case 'value': return h.value;
+        case 'pctOfHoldings': return h.pctOfHoldings;
+        case 'distPerYear': return h.distributionPerYear;
+        case 'yield': return h.yieldPct;
+        case 'annualIncome': return h.annualIncome;
+        case 'status': return h.status;
+        case 'taxForm': return h.taxForm;
+    }
 }
 
 // ── Add Holding dropdown: account (existing or new) + ticker search ────────
@@ -310,6 +338,31 @@ export function PortfolioTab({ onOpenChart }: Props) {
         refresh();
     }
 
+    // Sort state is shared across accounts (one click-to-sort header for the whole tab),
+    // but sorting is applied within each account group so accounts stay visually separated.
+    const { sortKey, direction, requestSort, sortIndicator } = useSortableRows<PortfolioHolding, HoldingSortKey>(
+        holdings,
+        getHoldingSortValue,
+    );
+
+    type AccountGroup = { accountId: number; accountName: string; holdings: PortfolioHolding[] };
+    const accountGroups: AccountGroup[] = useMemo(() => {
+        const byAccount = new Map<number, PortfolioHolding[]>();
+        for (const h of holdings) {
+            const list = byAccount.get(h.accountId) ?? [];
+            list.push(h);
+            byAccount.set(h.accountId, list);
+        }
+        const comparator = buildComparator(getHoldingSortValue, sortKey, direction);
+        const groups: AccountGroup[] = [];
+        for (const acc of accounts) {
+            const list = byAccount.get(acc.id);
+            if (!list || list.length === 0) continue;
+            groups.push({ accountId: acc.id, accountName: acc.name, holdings: [...list].sort(comparator) });
+        }
+        return groups;
+    }, [holdings, accounts, sortKey, direction]);
+
     const thStyle: React.CSSProperties = {
         textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #2a2a2a',
         color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: '#0b0b0b',
@@ -354,74 +407,98 @@ export function PortfolioTab({ onOpenChart }: Props) {
                     <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                         <thead>
                             <tr>
-                                <th style={thStyle}>Ticker</th>
-                                <th style={thStyle}>Company</th>
-                                <th style={thStyle}>Account</th>
-                                <th style={thStyle}>Alloc %</th>
-                                <th style={thStyle}>Basis Price</th>
-                                <th style={thStyle}>Current Price</th>
-                                <th style={thStyle}>Current Shares</th>
-                                <th style={thStyle}>Shares To Hold</th>
-                                <th style={thStyle}>Invested Basis</th>
-                                <th style={thStyle}># Holdings</th>
-                                <th style={thStyle}>Value</th>
-                                <th style={thStyle}>% of Holdings</th>
-                                <th style={thStyle}>Dist/Yr</th>
-                                <th style={thStyle}>Yield %</th>
-                                <th style={thStyle}>Annual Income</th>
-                                <th style={thStyle}>Status</th>
-                                <th style={thStyle}>Tax Form</th>
+                                {([
+                                    ['ticker', 'Ticker'], ['company', 'Company'], ['account', 'Account'],
+                                    ['alloc', 'Alloc %'], ['basisPrice', 'Basis Price'], ['currentPrice', 'Current Price'],
+                                    ['currentShares', 'Current Shares'], ['sharesToHold', 'Shares To Hold'],
+                                    ['investedBasis', 'Invested Basis'], ['holdingsCount', '# Holdings'],
+                                    ['value', 'Value'], ['pctOfHoldings', '% of Holdings'], ['distPerYear', 'Dist/Yr'],
+                                    ['yield', 'Yield %'], ['annualIncome', 'Annual Income'], ['status', 'Status'],
+                                    ['taxForm', 'Tax Form'],
+                                ] as [HoldingSortKey, string][]).map(([key, label]) => (
+                                    <th
+                                        key={key}
+                                        style={{ ...thStyle, cursor: 'pointer', userSelect: 'none' }}
+                                        onClick={() => requestSort(key)}
+                                    >
+                                        {label}{sortIndicator(key)}
+                                    </th>
+                                ))}
                                 <th style={thStyle}></th>
                                 <th style={thStyle}></th>
                             </tr>
                         </thead>
-                        <tbody>
-                            {holdings.map(h => (
-                                <tr key={h.id} onClick={() => setEditing(h)} style={{ cursor: 'pointer' }}>
-                                    <td
-                                        style={{ ...tdStyle, color: '#93c5fd', fontWeight: 600, textDecoration: 'underline' }}
-                                        onClick={e => { e.stopPropagation(); onOpenChart(h.tickerSymbol); }}
-                                        title={`Open ${h.tickerSymbol} in Chart tab`}
-                                    >
-                                        {h.tickerSymbol}
-                                    </td>
-                                    <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={h.companyName}>{h.companyName}</td>
-                                    <td style={tdStyle}>{h.accountName}</td>
-                                    <td style={tdStyle}>{pct(h.allocationPct)}</td>
-                                    <td style={tdStyle}>{money(h.basisPrice)}</td>
-                                    <td style={tdStyle}>{money(h.currentPrice)}</td>
-                                    <td style={tdStyle}>{num(h.currentShares)}</td>
-                                    <td style={tdStyle}>{num(h.sharesToHold)}</td>
-                                    <td style={tdStyle}>{money(h.investedBasis)}</td>
-                                    <td style={tdStyle}>{h.holdingsCount ?? '—'}</td>
-                                    <td style={tdStyle}>{money(h.value)}</td>
-                                    <td style={tdStyle}>{pct(h.pctOfHoldings)}</td>
-                                    <td style={tdStyle}>{money(h.distributionPerYear)}</td>
-                                    <td style={tdStyle}>{pct(h.yieldPct)}</td>
-                                    <td style={tdStyle}>{money(h.annualIncome)}</td>
-                                    <td style={tdStyle}>{h.status ?? '—'}</td>
-                                    <td style={tdStyle}>{h.taxForm ?? '—'}</td>
-                                    <td style={tdStyle}>
-                                        <button
-                                            onClick={e => { e.stopPropagation(); setSummarizing(h); }}
-                                            title="Ticker Summary"
-                                            style={{ ...btnStyle, padding: '2px 8px', fontSize: 11 }}
-                                        >
-                                            z
-                                        </button>
-                                    </td>
-                                    <td style={tdStyle}>
-                                        <button
-                                            onClick={e => { e.stopPropagation(); handleDelete(h); }}
-                                            title="Remove"
-                                            style={{ background: 'none', border: 'none', color: '#ef5350', cursor: 'pointer', fontSize: 13 }}
-                                        >
-                                            ✕
-                                        </button>
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
+                        {accountGroups.map(group => {
+                            const investedBasisSum = group.holdings.reduce((s, h) => s + (h.investedBasis ?? 0), 0);
+                            const valueSum = group.holdings.reduce((s, h) => s + (h.value ?? 0), 0);
+                            const annualIncomeSum = group.holdings.reduce((s, h) => s + (h.annualIncome ?? 0), 0);
+
+                            return (
+                                <tbody key={group.accountId}>
+                                    {group.holdings.map(h => (
+                                        <tr key={h.id} onClick={() => setEditing(h)} style={{ cursor: 'pointer' }}>
+                                            <td
+                                                style={{ ...tdStyle, color: '#93c5fd', fontWeight: 600, textDecoration: 'underline' }}
+                                                onClick={e => { e.stopPropagation(); onOpenChart(h.tickerSymbol); }}
+                                                title={`Open ${h.tickerSymbol} in Chart tab`}
+                                            >
+                                                {h.tickerSymbol}
+                                            </td>
+                                            <td style={{ ...tdStyle, maxWidth: 200, overflow: 'hidden', textOverflow: 'ellipsis' }} title={h.companyName}>{h.companyName}</td>
+                                            <td style={tdStyle}>{h.accountName}</td>
+                                            <td style={tdStyle}>{pct(h.allocationPct)}</td>
+                                            <td style={tdStyle}>{money(h.basisPrice)}</td>
+                                            <td style={tdStyle}>{money(h.currentPrice)}</td>
+                                            <td style={tdStyle}>{num(h.currentShares)}</td>
+                                            <td style={tdStyle}>{num(h.sharesToHold)}</td>
+                                            <td style={tdStyle}>{money(h.investedBasis)}</td>
+                                            <td style={tdStyle}>{h.holdingsCount ?? '—'}</td>
+                                            <td style={tdStyle}>{money(h.value)}</td>
+                                            <td style={tdStyle}>{pct(h.pctOfHoldings)}</td>
+                                            <td style={tdStyle}>{money(h.distributionPerYear)}</td>
+                                            <td style={tdStyle}>{pct(h.yieldPct)}</td>
+                                            <td style={tdStyle}>{money(h.annualIncome)}</td>
+                                            <td style={tdStyle}>{h.status ?? '—'}</td>
+                                            <td style={tdStyle}>{h.taxForm ?? '—'}</td>
+                                            <td style={tdStyle}>
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); setSummarizing(h); }}
+                                                    title="Ticker Summary"
+                                                    style={{ ...btnStyle, padding: '2px 8px', fontSize: 11 }}
+                                                >
+                                                    z
+                                                </button>
+                                            </td>
+                                            <td style={tdStyle}>
+                                                <button
+                                                    onClick={e => { e.stopPropagation(); handleDelete(h); }}
+                                                    title="Remove"
+                                                    style={{ background: 'none', border: 'none', color: '#ef5350', cursor: 'pointer', fontSize: 13 }}
+                                                >
+                                                    ✕
+                                                </button>
+                                            </td>
+                                        </tr>
+                                    ))}
+                                    <tr style={{ background: '#161616' }}>
+                                        <td style={{ ...tdStyle, fontWeight: 700, color: '#e2e8f0' }} colSpan={8}>
+                                            {group.accountName} — Total
+                                        </td>
+                                        <td style={{ ...tdStyle, fontWeight: 700 }}>{money(investedBasisSum)}</td>
+                                        <td style={tdStyle}></td>
+                                        <td style={{ ...tdStyle, fontWeight: 700 }}>{money(valueSum)}</td>
+                                        <td style={tdStyle}></td>
+                                        <td style={tdStyle}></td>
+                                        <td style={tdStyle}></td>
+                                        <td style={{ ...tdStyle, fontWeight: 700 }}>{money(annualIncomeSum)}</td>
+                                        <td style={tdStyle}></td>
+                                        <td style={tdStyle}></td>
+                                        <td style={tdStyle}></td>
+                                        <td style={tdStyle}></td>
+                                    </tr>
+                                </tbody>
+                            );
+                        })}
                     </table>
                 </div>
             )}

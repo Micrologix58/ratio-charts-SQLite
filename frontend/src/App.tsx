@@ -10,7 +10,7 @@ import type { Annotation, ChartKey } from "./types/annotations";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
-type Tool = "select" | "trendline" | "rectangle";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline";
 
 type CandlePoint = {
     time: string;
@@ -545,6 +545,19 @@ export default function App() {
                         }}
                     >
                         Rectangle
+                    </button>
+                    <button
+                        onClick={() => setActiveTool("horizontalline")}
+                        title="Click the chart to place a horizontal line at that price"
+                        style={{
+                            padding: "4px 10px",
+                            background: activeTool === "horizontalline" ? "#555" : "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        H-Line
                     </button>
                     <button
                         onClick={handleDeleteSelected}
