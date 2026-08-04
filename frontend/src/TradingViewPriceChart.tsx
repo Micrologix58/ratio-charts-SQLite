@@ -31,7 +31,7 @@ type VolumePoint = {
     color: string;
 };
 
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure";
 
 type Props = {
     data: CandlePoint[] | RatioPoint[];
@@ -297,6 +297,29 @@ export function TradingViewPriceChart({
         }
 
         return null;
+    }
+
+    // Nearest bar index to a given x pixel — used by the measure tool to snap to
+    // actual candle close prices rather than the pixel-derived price under the cursor.
+    function nearestBarIndex(x: number): number {
+        if (!chartRef.current || !data.length) return -1;
+
+        const chart = chartRef.current;
+        let nearestIndex = -1;
+        let nearestDistance = Number.POSITIVE_INFINITY;
+
+        data.forEach((point, index) => {
+            const px = chart.timeScale().timeToCoordinate(toChartTime(point.time));
+            if (px == null) return;
+
+            const dist = Math.abs(px - x);
+            if (dist < nearestDistance) {
+                nearestDistance = dist;
+                nearestIndex = index;
+            }
+        });
+
+        return nearestIndex;
     }
 
     function screenToTimePrice(x: number, y: number) {
@@ -598,6 +621,43 @@ export function TradingViewPriceChart({
         chartRef.current.timeScale().fitContent();
     }, [data, isRatio, isLineOnly]);
 
+    // Measure-tool result — snaps both ends to actual bar close prices (not the
+    // pixel-derived cursor price) so it reports the same closing-price diff/% TV does.
+    type MeasureResult = {
+        startTime: string;
+        endTime: string;
+        startPrice: number;
+        endPrice: number;
+        priceDiff: number;
+        pctDiff: number;
+        barCount: number;
+    };
+    const measureResult: MeasureResult | null = useMemo(() => {
+        if (activeTool !== "measure" || !draftStart || !draftEnd || !data.length) return null;
+
+        const startIdx = nearestBarIndex(draftStart.x);
+        const endIdx = nearestBarIndex(draftEnd.x);
+        if (startIdx < 0 || endIdx < 0) return null;
+
+        const startBar = data[startIdx];
+        const endBar = data[endIdx];
+        const startPrice = getPriceAtPoint(startBar);
+        const endPrice = getPriceAtPoint(endBar);
+        const priceDiff = endPrice - startPrice;
+        const pctDiff = startPrice !== 0 ? (priceDiff / startPrice) * 100 : 0;
+
+        return {
+            startTime: startBar.time,
+            endTime: endBar.time,
+            startPrice,
+            endPrice,
+            priceDiff,
+            pctDiff,
+            barCount: Math.abs(endIdx - startIdx),
+        };
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTool, draftStart, draftEnd, data]);
+
     const overlayDeps = useMemo(
         () => ({
             annotations,
@@ -703,7 +763,7 @@ export function TradingViewPriceChart({
     }, [overlayDeps]);
 
     useEffect(() => {
-        if (activeTool !== "trendline" && activeTool !== "rectangle") {
+        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure") {
             setDraftStart(null);
             setDraftEnd(null);
         }
@@ -796,7 +856,7 @@ export function TradingViewPriceChart({
                     // Otherwise pass events through to the chart (pan/zoom/scroll).
                     // Individual line/circle elements have their own pointerEvents:auto
                     // so click-to-select and endpoint dragging still work in select mode.
-                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || !!dragEndpoint.current) ? "auto" : "none",
+                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || !!dragEndpoint.current) ? "auto" : "none",
                     overflow: "visible",
                     zIndex: 20,
                     cursor: dragEndpoint.current ? "crosshair" : "default",
@@ -854,8 +914,9 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline" && activeTool !== "rectangle") return;
+                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure") return;
 
+                    // Starting a new measurement drag replaces any previously-frozen one.
                     setDraftStart({ x, y });
                     setDraftEnd({ x, y });
                     setIsDrawing(true);
@@ -873,7 +934,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle") || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure") || !isDrawing || !draftStart) return;
                     setDraftEnd({ x, y });
                 }}
                 onMouseUp={(e) => {
@@ -912,6 +973,16 @@ export function TradingViewPriceChart({
                                 : [p0, newAnchor];
 
                         onUpdateAnnotation(annotationId, updatedPoints);
+                        return;
+                    }
+
+                    // Measure tool: freeze the drag as-is (don't clear draftStart/draftEnd, don't
+                    // persist an annotation) so the price/% readout stays on screen until the user
+                    // starts a new drag or switches tools — mirrors TV's measure tool behavior.
+                    if (activeTool === "measure") {
+                        if (!isDrawing || !draftStart) return;
+                        setDraftEnd({ x, y });
+                        setIsDrawing(false);
                         return;
                     }
 
@@ -1183,7 +1254,69 @@ export function TradingViewPriceChart({
                         <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill="#22c55e" />
                     </React.Fragment>
                 )}
+
+                {draftStart && draftEnd && activeTool === "measure" && measureResult && (() => {
+                    const up = measureResult.priceDiff >= 0;
+                    const measureColor = up ? "#26a69a" : "#ef5350";
+                    return (
+                        <React.Fragment>
+                            {/* Shaded band between the two measured bars, like TV's measure tool */}
+                            <rect
+                                x={Math.min(draftStart.x, draftEnd.x)}
+                                y={0}
+                                width={Math.abs(draftEnd.x - draftStart.x)}
+                                height={paneHeight > 0 ? paneHeight : "100%"}
+                                fill={measureColor}
+                                fillOpacity={0.1}
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                            />
+                            <line
+                                x1={draftStart.x}
+                                y1={draftStart.y}
+                                x2={draftEnd.x}
+                                y2={draftEnd.y}
+                                stroke={measureColor}
+                                strokeWidth={2}
+                                strokeDasharray="4 4"
+                                strokeLinecap="round"
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                            />
+                            <circle cx={draftStart.x} cy={draftStart.y} r={4} fill={measureColor} />
+                            <circle cx={draftEnd.x} cy={draftEnd.y} r={4} fill={measureColor} />
+                        </React.Fragment>
+                    );
+                })()}
             </svg>
+
+            {draftEnd && activeTool === "measure" && measureResult && (
+                <div
+                    style={{
+                        position: "absolute",
+                        left: draftEnd.x + 14,
+                        top: Math.max(0, draftEnd.y - 44),
+                        zIndex: 31,
+                        pointerEvents: "none",
+                        userSelect: "none",
+                        fontSize: 12,
+                        fontFamily: "Arial, sans-serif",
+                        color: "#fff",
+                        background: measureResult.priceDiff >= 0 ? "rgba(38,166,154,0.92)" : "rgba(239,83,80,0.92)",
+                        padding: "6px 10px",
+                        borderRadius: 4,
+                        whiteSpace: "nowrap",
+                        lineHeight: 1.4,
+                    }}
+                >
+                    <div style={{ fontWeight: "bold" }}>
+                        {measureResult.priceDiff >= 0 ? "+" : ""}
+                        {measureResult.priceDiff.toFixed(2)} ({measureResult.priceDiff >= 0 ? "+" : ""}
+                        {measureResult.pctDiff.toFixed(2)}%)
+                    </div>
+                    <div>
+                        {measureResult.barCount} bar{measureResult.barCount === 1 ? "" : "s"}
+                    </div>
+                </div>
+            )}
         </div>
     );
 }
