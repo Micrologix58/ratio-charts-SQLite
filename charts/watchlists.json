@@ -136,6 +136,10 @@
       {
         "type": "S",
         "symbol": "OIH"
+      },
+      {
+        "type": "R",
+        "expression": "USO/GLD"
       }
     ]
   },
@@ -150,6 +154,10 @@
       {
         "type": "S",
         "symbol": "COPX"
+      },
+      {
+        "type": "S",
+        "symbol": "SCCO"
       }
     ]
   },
@@ -253,6 +261,34 @@
       {
         "type": "S",
         "symbol": "USAS"
+      }
+    ]
+  },
+  {
+    "id": "wl-1784813384154",
+    "name": "Silver",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "PAAS"
+      },
+      {
+        "type": "S",
+        "symbol": "KSLV"
+      },
+      {
+        "type": "S",
+        "symbol": "HL"
+      }
+    ]
+  },
+  {
+    "id": "wl-1785808645622",
+    "name": "Materials",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "AA"
       }
     ]
   }
