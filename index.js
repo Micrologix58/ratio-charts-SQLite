@@ -329,7 +329,8 @@ app.get("/api/company/:symbol", (req, res) => {
         if (!symbol) return res.status(400).json({ error: "symbol is required" });
 
         const row = db.prepare(
-            `SELECT TickerSymbol, CompanyName FROM Companies WHERE TickerSymbol = ? LIMIT 1`
+            `SELECT TickerSymbol, CompanyName, AssetType, DatabaseCategory, IndustryClassification, ExchangeListed, WebsiteURL
+             FROM Companies WHERE TickerSymbol = ? LIMIT 1`
         ).get(symbol);
 
         if (!row) {
@@ -337,9 +338,92 @@ app.get("/api/company/:symbol", (req, res) => {
         }
 
         console.log(`GET /api/company/${symbol} — ${row.CompanyName}`);
-        res.json({ symbol: row.TickerSymbol, companyName: row.CompanyName });
+        res.json({
+            symbol: row.TickerSymbol,
+            companyName: row.CompanyName,
+            assetType: row.AssetType,
+            sector: row.DatabaseCategory,
+            industry: row.IndustryClassification,
+            exchangeListed: row.ExchangeListed,
+            websiteURL: row.WebsiteURL,
+        });
     } catch (err) {
         console.error("company lookup error:", err);
+        res.status(500).json({ error: err.message });
+    }
+});
+
+// PUT /api/companies/:symbol  body: { companyName?, databaseCategory?, industryClassification?, exchangeListed?, websiteURL? }
+app.put("/api/companies/:symbol", (req, res) => {
+    try {
+        const symbol = String(req.params.symbol || "").toUpperCase().trim();
+        if (!symbol) return res.status(400).json({ success: false, error: "symbol is required" });
+
+        const existing = db.prepare(`SELECT TickerSymbol FROM Companies WHERE TickerSymbol = ?`).get(symbol);
+        if (!existing) {
+            return res.status(404).json({ success: false, error: `${symbol} not found in Companies` });
+        }
+
+        const { companyName, databaseCategory, industryClassification, exchangeListed, websiteURL } = req.body;
+
+        db.prepare(`
+            UPDATE Companies SET
+                CompanyName = COALESCE(?, CompanyName),
+                DatabaseCategory = ?,
+                IndustryClassification = ?,
+                ExchangeListed = ?,
+                WebsiteURL = ?,
+                UpdatedAt = CURRENT_TIMESTAMP
+            WHERE TickerSymbol = ?
+        `).run(
+            companyName?.trim() || null,
+            databaseCategory?.trim() || null,
+            industryClassification?.trim() || null,
+            exchangeListed?.trim() || null,
+            websiteURL?.trim() || null,
+            symbol,
+        );
+
+        console.log(`PUT /api/companies/${symbol} — updated`);
+        res.json({ success: true, data: { tickerSymbol: symbol } });
+    } catch (err) {
+        console.error("PUT /api/companies/:symbol error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+const fundamentalsStmt = db.prepare(`
+    SELECT f.MetricName, f.MetricValue
+    FROM FundamentalMetrics f
+    WHERE f.TickerSymbol = ?
+      AND f.MetricName IN ('MarketCapUSD', 'EPS_TTM', 'PE_Ratio', '52WeekHigh', '52WeekLow')
+      AND f.MetricDate = (
+          SELECT MAX(f2.MetricDate) FROM FundamentalMetrics f2
+          WHERE f2.TickerSymbol = f.TickerSymbol AND f2.MetricName = f.MetricName
+      )
+`);
+
+// GET /api/company/:symbol/fundamentals
+app.get("/api/company/:symbol/fundamentals", (req, res) => {
+    try {
+        const symbol = String(req.params.symbol || "").toUpperCase().trim();
+        if (!symbol) return res.status(400).json({ error: "symbol is required" });
+
+        const byName = {};
+        for (const row of fundamentalsStmt.all(symbol)) {
+            byName[row.MetricName] = row.MetricValue;
+        }
+
+        res.json({
+            symbol,
+            marketCapUSD: byName.MarketCapUSD ?? null,
+            epsTTM: byName.EPS_TTM ?? null,
+            peRatio: byName.PE_Ratio ?? null,
+            week52High: byName["52WeekHigh"] ?? null,
+            week52Low: byName["52WeekLow"] ?? null,
+        });
+    } catch (err) {
+        console.error("fundamentals lookup error:", err);
         res.status(500).json({ error: err.message });
     }
 });
@@ -518,13 +602,13 @@ app.get("/api/asset-rankings", (req, res) => {
     }
 });
 
-// POST /api/companies/onboard  body: { tickerSymbol, companyName, assetType, databaseCategory, exchangeListed?, websiteURL? }
+// POST /api/companies/onboard  body: { tickerSymbol, companyName, assetType, databaseCategory, industryClassification?, exchangeListed?, websiteURL? }
 app.post("/api/companies/onboard", (req, res) => {
     try {
         const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
         const name = String(req.body.companyName || "").trim();
         const assetType = String(req.body.assetType || "").trim();
-        const { databaseCategory, exchangeListed, websiteURL } = req.body;
+        const { databaseCategory, industryClassification, exchangeListed, websiteURL } = req.body;
 
         if (!ticker || !name || !["STOCK", "ETF"].includes(assetType.toUpperCase())) {
             return res.status(400).json({ success: false, error: "tickerSymbol, companyName, and assetType (Stock/ETF) are required" });
@@ -537,9 +621,9 @@ app.post("/api/companies/onboard", (req, res) => {
 
         db.prepare(`
             INSERT INTO Companies
-                (TickerSymbol, CompanyName, AssetType, DatabaseCategory, ExchangeListed, WebsiteURL, Active, SourceFeed, Provider, CreatedAt, UpdatedAt)
-            VALUES (?, ?, ?, ?, ?, ?, 1, 'manual', 'manual', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
-        `).run(ticker, name, assetType, databaseCategory || null, exchangeListed || null, websiteURL || null);
+                (TickerSymbol, CompanyName, AssetType, DatabaseCategory, IndustryClassification, ExchangeListed, WebsiteURL, Active, SourceFeed, Provider, CreatedAt, UpdatedAt)
+            VALUES (?, ?, ?, ?, ?, ?, ?, 1, 'manual', 'manual', CURRENT_TIMESTAMP, CURRENT_TIMESTAMP)
+        `).run(ticker, name, assetType, databaseCategory || null, industryClassification || null, exchangeListed || null, websiteURL || null);
 
         const backendDir = path.join(__dirname, "backend");
         const tickersFile = path.join(backendDir, "tickers.txt");

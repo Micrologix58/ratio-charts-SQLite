@@ -105,6 +105,38 @@ def upsert_dividends(conn: sqlite3.Connection, rows: Iterable[Dict]) -> int:
     return len(rows)
 
 
+def upsert_fundamental_metrics(conn: sqlite3.Connection, rows: Iterable[Dict]) -> int:
+    rows = list(rows)
+    if not rows:
+        return 0
+
+    sql = """
+    INSERT INTO FundamentalMetrics
+        (TickerSymbol, MetricDate, MetricName, MetricValue, DataSource, LastUpdated)
+    VALUES
+        (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+    ON CONFLICT(TickerSymbol, MetricDate, MetricName) DO UPDATE SET
+        MetricValue = excluded.MetricValue,
+        DataSource = excluded.DataSource,
+        LastUpdated = CURRENT_TIMESTAMP
+    """
+
+    cur = conn.cursor()
+    for r in rows:
+        cur.execute(
+            sql,
+            (
+                r["TickerSymbol"],
+                r["MetricDate"],
+                r["MetricName"],
+                r["MetricValue"],
+                r.get("DataSource"),
+            ),
+        )
+    conn.commit()
+    return len(rows)
+
+
 def upsert_price_history(conn: sqlite3.Connection, rows: Iterable[Dict]) -> int:
     rows = list(rows)
     if not rows:

@@ -44,6 +44,25 @@ export type OnboardPayload = {
     companyName: string;
     assetType: 'Stock' | 'ETF';
     databaseCategory?: string;
+    industryClassification?: string;
+    exchangeListed?: string;
+    websiteURL?: string;
+};
+
+export type CompanyDetail = {
+    symbol: string;
+    companyName: string;
+    assetType: string;
+    sector: string | null;
+    industry: string | null;
+    exchangeListed: string | null;
+    websiteURL: string | null;
+};
+
+export type UpdateCompanyPayload = {
+    companyName?: string;
+    databaseCategory?: string;
+    industryClassification?: string;
     exchangeListed?: string;
     websiteURL?: string;
 };
@@ -122,4 +141,21 @@ export async function onboardAsset(payload: OnboardPayload): Promise<{ tickerSym
 export async function fetchPriceStatus(symbol: string): Promise<{ tickerSymbol: string; rowCount: number; lastPriceDate: string | null }> {
     const res = await fetch(`/api/companies/${encodeURIComponent(symbol)}/price-status`);
     return (await res.json()).data;
+}
+
+export async function fetchCompanyDetail(symbol: string): Promise<CompanyDetail> {
+    const res = await fetch(`/api/company/${encodeURIComponent(symbol)}`);
+    if (!res.ok) throw new Error(`Company not found: ${symbol}`);
+    return res.json();
+}
+
+export async function updateCompany(symbol: string, payload: UpdateCompanyPayload): Promise<{ tickerSymbol: string }> {
+    const res = await fetch(`/api/companies/${encodeURIComponent(symbol)}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+    });
+    const json = await res.json();
+    if (!json.success) throw new Error(json.error || 'Failed to update company');
+    return json.data;
 }

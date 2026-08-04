@@ -7,10 +7,11 @@ import { PortfolioTab } from "./PortfolioTab";
 import type { WatchlistEntry } from "./services/watchlistApi";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Annotation, ChartKey } from "./types/annotations";
+import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure";
 
 type CandlePoint = {
     time: string;
@@ -82,6 +83,22 @@ async function fetchOhlc(symbol: string, tf: TF): Promise<CandlePoint[]> {
     }));
 }
 
+function formatMarketCap(v: number | null): string {
+    if (v == null) return "—";
+    if (v >= 1_000_000_000) return `${(v / 1_000_000_000).toFixed(2)}B`;
+    if (v >= 1_000_000) return `${(v / 1_000_000).toFixed(2)}M`;
+    return v.toFixed(0);
+}
+
+function formatDecimal(v: number | null, digits: number): string {
+    return v == null ? "—" : v.toFixed(digits);
+}
+
+function formatRange(low: number | null, high: number | null): string {
+    if (low == null || high == null) return "—";
+    return `${low.toFixed(2)} - ${high.toFixed(2)}`;
+}
+
 async function fetchRatioOhlc(
     numerator: string,
     denominator: string,
@@ -131,6 +148,12 @@ export default function App() {
     // Company name(s) fetched from the DB for display below the toolbar
     const [companyDisplay, setCompanyDisplay] = useState<string>("");
 
+    // Sector / Industry / Website — single-ticker mode only (not meaningful for ratios)
+    const [companyMeta, setCompanyMeta] = useState<{ sector: string | null; industry: string | null; websiteURL: string | null } | null>(null);
+
+    // Fundamentals strip below the chart — single-ticker mode only (not meaningful for ratios)
+    const [fundamentals, setFundamentals] = useState<Fundamentals | null>(null);
+
     const LINE_ONLY_SYMBOLS = new Set(["US2YR", "US10YR", "US30YR"]);
     const isLineOnly = mode === "S" && LINE_ONLY_SYMBOLS.has(symbol);
 
@@ -142,13 +165,16 @@ export default function App() {
             try {
                 if (mode === "S") {
                     const res = await fetch(`/api/company/${encodeURIComponent(symbol)}`);
-                    if (!res.ok) { setCompanyDisplay(symbol); return; }
+                    if (!res.ok) { setCompanyDisplay(symbol); setCompanyMeta(null); return; }
                     const data = await res.json();
-                    if (!cancelled) setCompanyDisplay(data.companyName ?? symbol);
+                    if (!cancelled) {
+                        setCompanyDisplay(data.companyName ?? symbol);
+                        setCompanyMeta({ sector: data.sector ?? null, industry: data.industry ?? null, websiteURL: data.websiteURL ?? null });
+                    }
                 } else {
                     // Ratio mode — fetch both sides in parallel
                     const [num, den] = expression.split("/").map(s => s.trim());
-                    if (!num || !den) { setCompanyDisplay(expression); return; }
+                    if (!num || !den) { setCompanyDisplay(expression); setCompanyMeta(null); return; }
                     const [rNum, rDen] = await Promise.all([
                         fetch(`/api/company/${encodeURIComponent(num)}`),
                         fetch(`/api/company/${encodeURIComponent(den)}`),
@@ -158,16 +184,27 @@ export default function App() {
                         const numName = dNum.companyName ?? num;
                         const denName = dDen.companyName ?? den;
                         setCompanyDisplay(`${numName} / ${denName}`);
+                        setCompanyMeta(null);
                     }
                 }
             } catch {
-                if (!cancelled) setCompanyDisplay(mode === "S" ? symbol : expression);
+                if (!cancelled) { setCompanyDisplay(mode === "S" ? symbol : expression); setCompanyMeta(null); }
             }
         }
 
         loadCompany();
         return () => { cancelled = true; };
     }, [mode, symbol, expression]);
+
+    // Fetch fundamentals strip (Market Cap / EPS / P/E / 52-Week Range) — single-ticker mode only
+    useEffect(() => {
+        if (mode !== "S") { setFundamentals(null); return; }
+        let cancelled = false;
+        fetchFundamentals(symbol)
+            .then(data => { if (!cancelled) setFundamentals(data); })
+            .catch(() => { if (!cancelled) setFundamentals(null); });
+        return () => { cancelled = true; };
+    }, [mode, symbol]);
 
     // Escape key deselects the current annotation
     useEffect(() => {
@@ -560,6 +597,19 @@ export default function App() {
                         H-Line
                     </button>
                     <button
+                        onClick={() => setActiveTool("measure")}
+                        title="Drag between two candles to measure the price/% change between their closes"
+                        style={{
+                            padding: "4px 10px",
+                            background: activeTool === "measure" ? "#555" : "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        Measure
+                    </button>
+                    <button
                         onClick={handleDeleteSelected}
                         disabled={!selectedAnnotationId}
                         style={{ padding: "4px 10px", opacity: selectedAnnotationId ? 1 : 0.4, cursor: selectedAnnotationId ? "pointer" : "default" }}
@@ -732,6 +782,41 @@ export default function App() {
                                 />
                             </ChartErrorBoundary>
                         </div>
+
+                        {fundamentals && (
+                            <div style={{
+                                display: "flex", justifyContent: "center", gap: 28,
+                                marginTop: 10, padding: "8px 0", color: "#e2e8f0",
+                                fontSize: 13, borderTop: "1px solid #2a2a2a",
+                            }}>
+                                <span><span style={{ color: "#94a3b8" }}>Market Cap:</span> {formatMarketCap(fundamentals.marketCapUSD)}</span>
+                                <span><span style={{ color: "#94a3b8" }}>EPS:</span> {formatDecimal(fundamentals.epsTTM, 2)}</span>
+                                <span><span style={{ color: "#94a3b8" }}>P/E Ratio:</span> {formatDecimal(fundamentals.peRatio, 1)}</span>
+                                <span><span style={{ color: "#94a3b8" }}>52 Week Range:</span> {formatRange(fundamentals.week52Low, fundamentals.week52High)}</span>
+                            </div>
+                        )}
+
+                        {companyMeta && (companyMeta.sector || companyMeta.industry || companyMeta.websiteURL) && (
+                            <div style={{
+                                display: "flex", justifyContent: "center", gap: 28,
+                                padding: "4px 0 8px", color: "#e2e8f0", fontSize: 13,
+                            }}>
+                                {companyMeta.sector && (
+                                    <span><span style={{ color: "#94a3b8" }}>Sector:</span> {companyMeta.sector}</span>
+                                )}
+                                {companyMeta.industry && (
+                                    <span><span style={{ color: "#94a3b8" }}>Industry:</span> {companyMeta.industry}</span>
+                                )}
+                                {companyMeta.websiteURL && (
+                                    <span>
+                                        <span style={{ color: "#94a3b8" }}>Website:</span>{" "}
+                                        <a href={companyMeta.websiteURL} target="_blank" rel="noopener noreferrer" style={{ color: "#93c5fd" }}>
+                                            {companyMeta.websiteURL.replace(/^https?:\/\//, "").replace(/\/$/, "")}
+                                        </a>
+                                    </span>
+                                )}
+                            </div>
+                        )}
 
                     </div>
                 )}

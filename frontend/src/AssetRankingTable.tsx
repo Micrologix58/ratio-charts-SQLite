@@ -6,6 +6,7 @@ import {
     fetchStockRankings,
     addAssetEntry,
 } from './services/assetWatchlistApi';
+import { AssetOnboardingModal } from './AssetOnboardingModal';
 
 type Props = {
     mode: 'ETF' | 'stock';
@@ -55,15 +56,18 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
     const [stockRows, setStockRows] = useState<StockRankingRow[]>([]);
     const [loading, setLoading] = useState(true);
     const [addedSet, setAddedSet] = useState<Set<string>>(new Set());
+    const [editingTicker, setEditingTicker] = useState<string | null>(null);
 
-    useEffect(() => {
+    function loadRows() {
         setLoading(true);
         if (mode === 'ETF') {
             fetchEtfRankings(100).then(rows => { setEtfRows(rows); setLoading(false); });
         } else {
             fetchStockRankings(200).then(rows => { setStockRows(rows); setLoading(false); });
         }
-    }, [mode]);
+    }
+
+    useEffect(loadRows, [mode]);
 
     async function handleAdd(ticker: string) {
         if (!activeWatchlistId) return;
@@ -153,13 +157,20 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                                         <td style={tdStyle}>{num(r.DripScore, 3)}</td>
                                         <td style={tdStyle}>{pct(r.DripOpportunityPct)}</td>
                                         <td style={tdStyle}><RankBadge rank={r.OpportunityRank} /></td>
-                                        <td style={tdStyle}>
+                                        <td style={{ ...tdStyle, display: 'flex', gap: 6 }}>
                                             <button
                                                 onClick={() => handleAdd(r.TickerSymbol)}
                                                 disabled={!activeWatchlistId || addedSet.has(r.TickerSymbol)}
                                                 style={{ ...btnSmall }}
                                             >
                                                 {addedSet.has(r.TickerSymbol) ? 'Added' : 'Add'}
+                                            </button>
+                                            <button
+                                                onClick={() => setEditingTicker(r.TickerSymbol)}
+                                                title={`Edit ${r.TickerSymbol}`}
+                                                style={{ ...btnSmall }}
+                                            >
+                                                ✎
                                             </button>
                                         </td>
                                     </tr>
@@ -200,13 +211,20 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                                         <td style={tdStyle}>{num(r.TrailingAnnualDividend, 4)}</td>
                                         <td style={tdStyle}>{pct(r.DividendYieldPct)}</td>
                                         <td style={tdStyle}><RankBadge rank={r.StockRank} /></td>
-                                        <td style={tdStyle}>
+                                        <td style={{ ...tdStyle, display: 'flex', gap: 6 }}>
                                             <button
                                                 onClick={() => handleAdd(r.TickerSymbol)}
                                                 disabled={!activeWatchlistId || addedSet.has(r.TickerSymbol)}
                                                 style={{ ...btnSmall }}
                                             >
                                                 {addedSet.has(r.TickerSymbol) ? 'Added' : 'Add'}
+                                            </button>
+                                            <button
+                                                onClick={() => setEditingTicker(r.TickerSymbol)}
+                                                title={`Edit ${r.TickerSymbol}`}
+                                                style={{ ...btnSmall }}
+                                            >
+                                                ✎
                                             </button>
                                         </td>
                                     </tr>
@@ -215,6 +233,14 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                         </table>
                     )}
                 </div>
+
+                {editingTicker && (
+                    <AssetOnboardingModal
+                        editTicker={editingTicker}
+                        onClose={() => setEditingTicker(null)}
+                        onOnboarded={loadRows}
+                    />
+                )}
 
                 {!activeWatchlistId && (
                     <div style={{ padding: '8px 14px', color: '#facc15', fontSize: 12, borderTop: '1px solid #2a2a2a' }}>
