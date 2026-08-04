@@ -363,6 +363,10 @@ export function PortfolioTab({ onOpenChart }: Props) {
         return groups;
     }, [holdings, accounts, sortKey, direction]);
 
+    const grandInvestedBasis = holdings.reduce((s, h) => s + (h.investedBasis ?? 0), 0);
+    const grandValue = holdings.reduce((s, h) => s + (h.value ?? 0), 0);
+    const grandAnnualIncome = holdings.reduce((s, h) => s + (h.annualIncome ?? 0), 0);
+
     const thStyle: React.CSSProperties = {
         textAlign: 'left', padding: '6px 8px', borderBottom: '1px solid #2a2a2a',
         color: '#94a3b8', fontWeight: 600, whiteSpace: 'nowrap', position: 'sticky', top: 0, background: '#0b0b0b',
@@ -499,6 +503,24 @@ export function PortfolioTab({ onOpenChart }: Props) {
                                 </tbody>
                             );
                         })}
+                        <tfoot>
+                            <tr style={{ background: '#1e1e1e' }}>
+                                <td style={{ ...tdStyle, fontWeight: 700, color: '#e2e8f0' }} colSpan={8}>
+                                    Portfolio — Grand Total
+                                </td>
+                                <td style={{ ...tdStyle, fontWeight: 700 }}>{money(grandInvestedBasis)}</td>
+                                <td style={tdStyle}></td>
+                                <td style={{ ...tdStyle, fontWeight: 700 }}>{money(grandValue)}</td>
+                                <td style={tdStyle}></td>
+                                <td style={tdStyle}></td>
+                                <td style={tdStyle}></td>
+                                <td style={{ ...tdStyle, fontWeight: 700 }}>{money(grandAnnualIncome)}</td>
+                                <td style={tdStyle}></td>
+                                <td style={tdStyle}></td>
+                                <td style={tdStyle}></td>
+                                <td style={tdStyle}></td>
+                            </tr>
+                        </tfoot>
                     </table>
                 </div>
             )}
