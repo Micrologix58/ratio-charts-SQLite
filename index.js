@@ -717,6 +717,7 @@ const MARKET_SNAPSHOT_ITEMS = [
     { section: "Commodities", symbol: "GDX", label: "GDX" },
     { section: "Commodities", symbol: "GDXJ", label: "GDXJ" },
     { section: "Commodities", symbol: "C:XAGUSD", label: "Silver" },
+    { section: "Commodities", symbol: "SIL", label: "SIL" },
     { section: "Commodities", symbol: "SILJ", label: "SILJ" },
     { section: "Commodities", symbol: "RIO", label: "RIO" },
     { section: "Commodities", symbol: "COPX", label: "COPX" },
