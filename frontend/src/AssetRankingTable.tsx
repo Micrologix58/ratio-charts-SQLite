@@ -51,6 +51,11 @@ function num(v: number | null | undefined, digits = 2): string {
     return v == null ? '—' : v.toFixed(digits);
 }
 
+function range(low: number | null | undefined, high: number | null | undefined): string {
+    if (low == null || high == null) return '—';
+    return `${low.toFixed(2)} - ${high.toFixed(2)}`;
+}
+
 export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, onOpenChart }: Props) {
     const [etfRows, setEtfRows] = useState<EtfRankingRow[]>([]);
     const [stockRows, setStockRows] = useState<StockRankingRow[]>([]);
@@ -135,6 +140,9 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                                     <th style={thStyle}>Avg Yield</th>
                                     <th style={thStyle}>DRIP Score</th>
                                     <th style={thStyle}>DRIP Opportunity</th>
+                                    <th style={thStyle}>P/E</th>
+                                    <th style={thStyle}>Last Price</th>
+                                    <th style={thStyle}>52 Week Range</th>
                                     <th style={thStyle}>Opp Rank</th>
                                     <th style={thStyle}></th>
                                 </tr>
@@ -156,6 +164,9 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                                         <td style={tdStyle}>{pct(r.AverageYieldPct)}</td>
                                         <td style={tdStyle}>{num(r.DripScore, 3)}</td>
                                         <td style={tdStyle}>{pct(r.DripOpportunityPct)}</td>
+                                        <td style={tdStyle}>{num(r.PeRatio, 1)}</td>
+                                        <td style={tdStyle}>{num(r.LastPrice, 2)}</td>
+                                        <td style={tdStyle}>{range(r.Week52Low, r.Week52High)}</td>
                                         <td style={tdStyle}><RankBadge rank={r.OpportunityRank} /></td>
                                         <td style={{ ...tdStyle, display: 'flex', gap: 6 }}>
                                             <button
@@ -190,6 +201,9 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                                     <th style={thStyle}>Div Amount</th>
                                     <th style={thStyle}>Annual Amount</th>
                                     <th style={thStyle}>Div Yield</th>
+                                    <th style={thStyle}>P/E</th>
+                                    <th style={thStyle}>Last Price</th>
+                                    <th style={thStyle}>52 Week Range</th>
                                     <th style={thStyle}>Rank</th>
                                     <th style={thStyle}></th>
                                 </tr>
@@ -210,6 +224,9 @@ export function AssetRankingTable({ mode, activeWatchlistId, onClose, onAdded, o
                                         <td style={tdStyle}>{num(r.LastDividendAmount, 4)}</td>
                                         <td style={tdStyle}>{num(r.TrailingAnnualDividend, 4)}</td>
                                         <td style={tdStyle}>{pct(r.DividendYieldPct)}</td>
+                                        <td style={tdStyle}>{num(r.PeRatio, 1)}</td>
+                                        <td style={tdStyle}>{num(r.LastPrice, 2)}</td>
+                                        <td style={tdStyle}>{range(r.Week52Low, r.Week52High)}</td>
                                         <td style={tdStyle}><RankBadge rank={r.StockRank} /></td>
                                         <td style={{ ...tdStyle, display: 'flex', gap: 6 }}>
                                             <button

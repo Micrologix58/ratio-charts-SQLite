@@ -570,14 +570,44 @@ app.get("/api/asset-rankings", (req, res) => {
 
         const asOfRow = db.prepare(`SELECT MAX(AsOfDate) AS asOfDate FROM AssetRankings`).get();
 
+        // Latest value per (ticker, metric) from the EAV-style FundamentalMetrics table
+        // (see 004_fundamental_metrics.sql / 7-update_fundamentals.py).
+        const latestMetricJoin = (metricName) => `
+            LEFT JOIN (
+                SELECT f.TickerSymbol, f.MetricValue
+                FROM FundamentalMetrics f
+                WHERE f.MetricName = '${metricName}'
+                  AND f.MetricDate = (
+                      SELECT MAX(f2.MetricDate) FROM FundamentalMetrics f2
+                      WHERE f2.TickerSymbol = f.TickerSymbol AND f2.MetricName = f.MetricName
+                  )
+            )`;
+
+        // Latest close price from PriceHistory, same "most recent row per ticker" pattern
+        // used for Portfolio's Current Price.
+        const latestPriceJoin = `
+            LEFT JOIN (
+                SELECT ph.TickerSymbol, ph.ClosePrice
+                FROM PriceHistory ph
+                WHERE ph.PriceDate = (
+                    SELECT MAX(ph2.PriceDate) FROM PriceHistory ph2 WHERE ph2.TickerSymbol = ph.TickerSymbol
+                )
+            ) lp ON lp.TickerSymbol = r.TickerSymbol`;
+
         let rows;
         if (assetType === "ETF") {
             rows = db.prepare(`
                 SELECT r.TickerSymbol, c.CompanyName,
                        r.Price1yrApprPct, r.FullDripReturnPct, r.ZeroDripReturnPct,
-                       r.AverageYieldPct, r.DripScore, r.DripOpportunityPct, r.OpportunityRank
+                       r.AverageYieldPct, r.DripScore, r.DripOpportunityPct, r.OpportunityRank,
+                       pe.MetricValue AS PeRatio, lp.ClosePrice AS LastPrice,
+                       wh.MetricValue AS Week52High, wl.MetricValue AS Week52Low
                 FROM AssetRankings r
                 JOIN Companies c ON c.TickerSymbol = r.TickerSymbol
+                ${latestMetricJoin('PE_Ratio')} pe ON pe.TickerSymbol = r.TickerSymbol
+                ${latestMetricJoin('52WeekHigh')} wh ON wh.TickerSymbol = r.TickerSymbol
+                ${latestMetricJoin('52WeekLow')} wl ON wl.TickerSymbol = r.TickerSymbol
+                ${latestPriceJoin}
                 WHERE r.AssetType = 'ETF' AND r.OpportunityRank IS NOT NULL
                 ORDER BY r.OpportunityRank DESC, r.DripScore DESC
                 LIMIT ?
@@ -586,9 +616,15 @@ app.get("/api/asset-rankings", (req, res) => {
             rows = db.prepare(`
                 SELECT r.TickerSymbol, c.CompanyName, c.DatabaseCategory AS Sector,
                        r.Price1yrApprPct, r.LastDividendAmount, r.TrailingAnnualDividend,
-                       r.DividendYieldPct, r.StockRank
+                       r.DividendYieldPct, r.StockRank,
+                       pe.MetricValue AS PeRatio, lp.ClosePrice AS LastPrice,
+                       wh.MetricValue AS Week52High, wl.MetricValue AS Week52Low
                 FROM AssetRankings r
                 JOIN Companies c ON c.TickerSymbol = r.TickerSymbol
+                ${latestMetricJoin('PE_Ratio')} pe ON pe.TickerSymbol = r.TickerSymbol
+                ${latestMetricJoin('52WeekHigh')} wh ON wh.TickerSymbol = r.TickerSymbol
+                ${latestMetricJoin('52WeekLow')} wl ON wl.TickerSymbol = r.TickerSymbol
+                ${latestPriceJoin}
                 WHERE r.AssetType = 'STOCK' AND r.StockRank IS NOT NULL
                 ORDER BY r.StockRank DESC, r.StockCompositeRaw DESC
                 LIMIT ?
@@ -659,6 +695,138 @@ app.get("/api/companies/:symbol/price-status", (req, res) => {
         res.json({ success: true, data: { tickerSymbol: symbol, rowCount: row.rowCount, lastPriceDate: row.lastPriceDate } });
     } catch (err) {
         console.error("GET /api/companies/:symbol/price-status error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ─── Home tab "Current Markets" panel ─────────────────────────────────────
+
+// Curated list backing the Home tab's left-pane market snapshot. S&P 500 and
+// Russell 2000 use SPY/IWM as proxies -- the real index tickers (I:SPX, I:RUT)
+// aren't available on the current Massive plan.
+const MARKET_SNAPSHOT_ITEMS = [
+    { section: "Indexes", symbol: "I:COMP", label: "NASDAQ" },
+    { section: "Indexes", symbol: "SPY", label: "S&P 500" },
+    { section: "Indexes", symbol: "IWM", label: "RUSS 2K" },
+
+    { section: "Rates", symbol: "US2YR", label: "US 2-YR" },
+    { section: "Rates", symbol: "US10YR", label: "US 10-YR" },
+    { section: "Rates", symbol: "US30YR", label: "US 30-YR" },
+
+    { section: "Commodities", symbol: "GLD", label: "Gold" },
+    { section: "Commodities", symbol: "GDX", label: "GDX" },
+    { section: "Commodities", symbol: "GDXJ", label: "GDXJ" },
+    { section: "Commodities", symbol: "SLV", label: "Silver" },
+    { section: "Commodities", symbol: "SILJ", label: "SILJ" },
+    { section: "Commodities", symbol: "RIO", label: "RIO" },
+    { section: "Commodities", symbol: "COPX", label: "COPX" },
+    { section: "Commodities", symbol: "USO", label: "USO" },
+    { section: "Commodities", symbol: "XOM", label: "XOM" },
+    { section: "Commodities", symbol: "OIH", label: "OIH" },
+    { section: "Commodities", symbol: "CVX", label: "CVX" },
+    { section: "Commodities", symbol: "XLE", label: "XLE" },
+    { section: "Commodities", symbol: "XLP", label: "XLP" },
+    { section: "Commodities", symbol: "MPLX", label: "MPLX" },
+];
+
+const latestTwoClosesStmt = db.prepare(
+    `SELECT ClosePrice, PriceDate FROM PriceHistory WHERE TickerSymbol = ? ORDER BY PriceDate DESC LIMIT 2`
+);
+
+// GET /api/market-snapshot
+app.get("/api/market-snapshot", (req, res) => {
+    try {
+        const data = MARKET_SNAPSHOT_ITEMS.map(item => {
+            const rows = latestTwoClosesStmt.all(item.symbol);
+            const current = rows[0]?.ClosePrice ?? null;
+            const previous = rows[1]?.ClosePrice ?? null;
+            const pctChange = current != null && previous ? ((current - previous) / previous) * 100 : null;
+            return {
+                section: item.section,
+                symbol: item.symbol,
+                label: item.label,
+                current,
+                previous,
+                pctChange,
+                asOfDate: rows[0]?.PriceDate ?? null,
+            };
+        });
+        res.json({ success: true, data });
+    } catch (err) {
+        console.error("GET /api/market-snapshot error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ─── Home tab "Asset Allocation" (net worth) — see sql/005_asset_allocation.sql ───
+
+function currentMonthStart() {
+    const d = new Date();
+    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, "0")}-01`;
+}
+
+// GET /api/asset-allocation — each category's most recent monthly value (not
+// necessarily all from the same month, so editing one category doesn't drop
+// the others while they wait for their own next update), plus computed % and
+// Net Worth total.
+app.get("/api/asset-allocation", (req, res) => {
+    try {
+        const rows = db.prepare(`
+            SELECT h.CategoryName, h.AmountUSD, h.SortOrder, h.AsOfMonth
+            FROM AssetAllocationHistory h
+            WHERE h.AsOfMonth = (
+                SELECT MAX(h2.AsOfMonth) FROM AssetAllocationHistory h2 WHERE h2.CategoryName = h.CategoryName
+            )
+            ORDER BY h.SortOrder
+        `).all();
+
+        const netWorth = rows.reduce((s, r) => s + r.AmountUSD, 0);
+        const categories = rows.map(r => ({
+            categoryName: r.CategoryName,
+            amountUSD: r.AmountUSD,
+            pct: netWorth > 0 ? (r.AmountUSD / netWorth) * 100 : 0,
+            asOfMonth: r.AsOfMonth,
+        }));
+        // Most recent month across all categories (each may have last been
+        // updated in a different month -- this is the "freshest" one).
+        const asOfMonth = rows.reduce((max, r) => (r.AsOfMonth > max ? r.AsOfMonth : max), rows[0]?.AsOfMonth ?? null);
+
+        res.json({ success: true, data: { categories, netWorth, asOfMonth } });
+    } catch (err) {
+        console.error("GET /api/asset-allocation error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PUT /api/asset-allocation/:categoryName  body: { amountUSD }
+// Upserts into the current calendar month — prior months stay untouched as history.
+app.put("/api/asset-allocation/:categoryName", (req, res) => {
+    try {
+        const categoryName = String(req.params.categoryName || "").trim();
+        const amountUSD = Number(req.body.amountUSD);
+        if (!categoryName || !Number.isFinite(amountUSD)) {
+            return res.status(400).json({ success: false, error: "categoryName and numeric amountUSD are required" });
+        }
+
+        const asOfMonth = currentMonthStart();
+
+        const priorSort = db.prepare(
+            `SELECT SortOrder FROM AssetAllocationHistory WHERE CategoryName = ? ORDER BY AsOfMonth DESC LIMIT 1`
+        ).get(categoryName);
+        const maxSort = db.prepare(`SELECT MAX(SortOrder) AS m FROM AssetAllocationHistory`).get();
+        const sortOrder = priorSort ? priorSort.SortOrder : (maxSort.m ?? 0) + 1;
+
+        db.prepare(`
+            INSERT INTO AssetAllocationHistory (AsOfMonth, CategoryName, AmountUSD, SortOrder, UpdatedAt)
+            VALUES (?, ?, ?, ?, CURRENT_TIMESTAMP)
+            ON CONFLICT(AsOfMonth, CategoryName) DO UPDATE SET
+                AmountUSD = excluded.AmountUSD,
+                UpdatedAt = CURRENT_TIMESTAMP
+        `).run(asOfMonth, categoryName, amountUSD, sortOrder);
+
+        res.json({ success: true, data: { asOfMonth, categoryName, amountUSD } });
+    } catch (err) {
+        console.error("PUT /api/asset-allocation error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });

@@ -17,6 +17,10 @@ type Row = AssetWatchlistEntry & {
     rank: number | null;
     price1yrApprPct: number | null;
     yieldPct: number | null;
+    peRatio: number | null;
+    lastPrice: number | null;
+    week52High: number | null;
+    week52Low: number | null;
 };
 
 const RANK_COLORS: Record<number, string> = {
@@ -48,6 +52,15 @@ function RankBadge({ rank }: { rank: number | null }) {
 
 function pct(v: number | null | undefined): string {
     return v == null ? '—' : `${v.toFixed(2)}%`;
+}
+
+function num(v: number | null | undefined, digits = 1): string {
+    return v == null ? '—' : v.toFixed(digits);
+}
+
+function range(low: number | null | undefined, high: number | null | undefined): string {
+    if (low == null || high == null) return '—';
+    return `${low.toFixed(2)} - ${high.toFixed(2)}`;
 }
 
 export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpenChart }: Props) {
@@ -82,6 +95,10 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
                         rank: r?.OpportunityRank ?? null,
                         price1yrApprPct: r?.Price1yrApprPct ?? null,
                         yieldPct: r?.AverageYieldPct ?? null,
+                        peRatio: r?.PeRatio ?? null,
+                        lastPrice: r?.LastPrice ?? null,
+                        week52High: r?.Week52High ?? null,
+                        week52Low: r?.Week52Low ?? null,
                     };
                 }
                 const r = stockMap.get(entry.tickerSymbol);
@@ -90,6 +107,10 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
                     rank: r?.StockRank ?? null,
                     price1yrApprPct: r?.Price1yrApprPct ?? null,
                     yieldPct: r?.DividendYieldPct ?? null,
+                    peRatio: r?.PeRatio ?? null,
+                    lastPrice: r?.LastPrice ?? null,
+                    week52High: r?.Week52High ?? null,
+                    week52Low: r?.Week52Low ?? null,
                 };
             });
 
@@ -100,7 +121,7 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
         return () => { cancelled = true; };
     }, [activeWatchlistId, refreshToken]);
 
-    type SortKey = 'ticker' | 'name' | 'appr' | 'yield' | 'rank';
+    type SortKey = 'ticker' | 'name' | 'appr' | 'yield' | 'pe' | 'lastPrice' | 'week52' | 'rank';
     const { sortedRows, requestSort, sortIndicator } = useSortableRows<Row, SortKey>(
         rows ?? [],
         (row, key) => {
@@ -109,6 +130,9 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
                 case 'name': return row.companyName;
                 case 'appr': return row.price1yrApprPct;
                 case 'yield': return row.yieldPct;
+                case 'pe': return row.peRatio;
+                case 'lastPrice': return row.lastPrice;
+                case 'week52': return row.week52High;
                 case 'rank': return row.rank;
             }
         },
@@ -154,6 +178,9 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
                     <th style={sortableThStyle} onClick={() => requestSort('name')}>Name{sortIndicator('name')}</th>
                     <th style={sortableThStyle} onClick={() => requestSort('appr')}>1yr Appr.{sortIndicator('appr')}</th>
                     <th style={sortableThStyle} onClick={() => requestSort('yield')}>Yield{sortIndicator('yield')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('pe')}>P/E{sortIndicator('pe')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('lastPrice')}>Last Price{sortIndicator('lastPrice')}</th>
+                    <th style={sortableThStyle} onClick={() => requestSort('week52')}>52 Week Range{sortIndicator('week52')}</th>
                     <th style={sortableThStyle} onClick={() => requestSort('rank')}>Rank{sortIndicator('rank')}</th>
                 </tr>
             </thead>
@@ -187,6 +214,9 @@ export function AssetWatchlistOverview({ activeWatchlistId, refreshToken, onOpen
                             </td>
                             <td style={tdStyle}>{pct(row.price1yrApprPct)}</td>
                             <td style={tdStyle}>{pct(row.yieldPct)}</td>
+                            <td style={tdStyle}>{num(row.peRatio)}</td>
+                            <td style={tdStyle}>{num(row.lastPrice, 2)}</td>
+                            <td style={tdStyle}>{range(row.week52Low, row.week52High)}</td>
                             <td style={tdStyle}><RankBadge rank={row.rank} /></td>
                         </tr>
                     );

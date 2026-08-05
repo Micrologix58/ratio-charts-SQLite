@@ -26,6 +26,10 @@ export type EtfRankingRow = {
     DripScore: number;
     DripOpportunityPct: number;
     OpportunityRank: number;
+    PeRatio: number | null;
+    LastPrice: number | null;
+    Week52High: number | null;
+    Week52Low: number | null;
 };
 
 export type StockRankingRow = {
@@ -37,6 +41,10 @@ export type StockRankingRow = {
     TrailingAnnualDividend: number;
     DividendYieldPct: number;
     StockRank: number;
+    PeRatio: number | null;
+    LastPrice: number | null;
+    Week52High: number | null;
+    Week52Low: number | null;
 };
 
 export type OnboardPayload = {

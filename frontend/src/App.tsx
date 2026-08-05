@@ -8,6 +8,8 @@ import type { WatchlistEntry } from "./services/watchlistApi";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Annotation, ChartKey } from "./types/annotations";
 import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi";
+import { HomeMarketPanel } from "./HomeMarketPanel";
+import { AssetAllocationPanel } from "./AssetAllocationPanel";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
@@ -822,11 +824,13 @@ export default function App() {
                 )}
 
 
-            {/* Home tab placeholder */}
+            {/* Home tab */}
             {activeTab === "home" && (
-                <div style={{ flex: 1, padding: 24, color: "#94a3b8" }}>
-                    <h3 style={{ color: "#e2e8f0", marginTop: 0 }}>Home</h3>
-                    <p>Coming soon.</p>
+                <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+                    <HomeMarketPanel />
+                    <div style={{ flex: 1, overflow: "auto" }}>
+                        <AssetAllocationPanel />
+                    </div>
                 </div>
             )}
 
