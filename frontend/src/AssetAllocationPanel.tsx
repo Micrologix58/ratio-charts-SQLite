@@ -1,4 +1,5 @@
 import React, { useEffect, useState } from "react";
+import { AllocationDonutChart, ALLOCATION_COLORS } from "./AllocationDonutChart";
 
 type AllocationCategory = {
     categoryName: string;
@@ -77,6 +78,10 @@ export function AssetAllocationPanel() {
             {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
             {!error && categories == null && <div style={{ fontSize: 12 }}>Loading…</div>}
 
+            {categories != null && netWorth > 0 && (
+                <AllocationDonutChart slices={categories} colors={ALLOCATION_COLORS} netWorth={netWorth} />
+            )}
+
             {categories != null && (
                 <table style={{ width: "100%", borderCollapse: "collapse", fontSize: 14 }}>
                     <thead>
@@ -87,9 +92,16 @@ export function AssetAllocationPanel() {
                         </tr>
                     </thead>
                     <tbody>
-                        {categories.map(c => (
+                        {categories.map((c, i) => (
                             <tr key={c.categoryName} style={{ borderBottom: "1px solid #1f1f1f" }}>
-                                <td style={tdLabelStyle}>{c.categoryName}</td>
+                                <td style={tdLabelStyle}>
+                                    <span style={{
+                                        display: "inline-block", width: 9, height: 9, borderRadius: "50%",
+                                        background: ALLOCATION_COLORS[i % ALLOCATION_COLORS.length],
+                                        marginRight: 8,
+                                    }} />
+                                    {c.categoryName}
+                                </td>
                                 <td
                                     style={tdNumStyle}
                                     title="Click to edit"
