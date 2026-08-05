@@ -62,6 +62,10 @@
       {
         "type": "S",
         "symbol": "SILJ"
+      },
+      {
+        "type": "S",
+        "symbol": "GOLD"
       }
     ]
   },

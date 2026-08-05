@@ -1272,5 +1272,90 @@
     "locked": false,
     "createdAt": "2026-08-04T03:24:57.484Z",
     "updatedAt": "2026-08-04T03:25:30.346Z"
+  },
+  {
+    "id": "ann-1785813963453",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "S",
+      "timeframe": "D",
+      "symbol": "HL"
+    },
+    "points": [
+      {
+        "time": "2026-05-04",
+        "price": 17.938965330438045
+      },
+      {
+        "time": "2026-01-21",
+        "price": 28.360877302226022
+      }
+    ],
+    "style": {
+      "color": "#4aa3ff",
+      "lineWidth": 1,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": false
+    },
+    "locked": false,
+    "createdAt": "2026-08-04T03:26:03.453Z",
+    "updatedAt": "2026-08-04T03:29:24.695Z"
+  },
+  {
+    "id": "ann-1785814010070",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "S",
+      "timeframe": "D",
+      "symbol": "HL"
+    },
+    "points": [
+      {
+        "time": "2026-05-04",
+        "price": 17.83741004832188
+      },
+      {
+        "time": "2026-05-14",
+        "price": 21.087179076039277
+      }
+    ],
+    "style": {
+      "color": "#4aa3ff",
+      "lineWidth": 1,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": false
+    },
+    "locked": false,
+    "createdAt": "2026-08-04T03:26:50.070Z",
+    "updatedAt": "2026-08-04T03:27:13.579Z"
+  },
+  {
+    "id": "ann-1785854328568",
+    "type": "rectangle",
+    "chartKey": {
+      "mode": "S",
+      "timeframe": "D",
+      "symbol": "XLE"
+    },
+    "points": [
+      {
+        "time": "2026-07-24",
+        "price": 57.49188240619296
+      },
+      {
+        "time": "2026-08-03",
+        "price": 59.58079713525655
+      }
+    ],
+    "style": {
+      "color": "#ffffff",
+      "lineWidth": 1,
+      "lineStyle": "solid"
+    },
+    "locked": false,
+    "createdAt": "2026-08-04T14:38:48.531Z",
+    "updatedAt": "2026-08-04T14:47:20.645Z"
   }
 ]
