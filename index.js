@@ -713,10 +713,10 @@ const MARKET_SNAPSHOT_ITEMS = [
     { section: "Rates", symbol: "US10YR", label: "US 10-YR" },
     { section: "Rates", symbol: "US30YR", label: "US 30-YR" },
 
-    { section: "Commodities", symbol: "GLD", label: "Gold" },
+    { section: "Commodities", symbol: "C:XAUUSD", label: "Gold" },
     { section: "Commodities", symbol: "GDX", label: "GDX" },
     { section: "Commodities", symbol: "GDXJ", label: "GDXJ" },
-    { section: "Commodities", symbol: "SLV", label: "Silver" },
+    { section: "Commodities", symbol: "C:XAGUSD", label: "Silver" },
     { section: "Commodities", symbol: "SILJ", label: "SILJ" },
     { section: "Commodities", symbol: "RIO", label: "RIO" },
     { section: "Commodities", symbol: "COPX", label: "COPX" },
