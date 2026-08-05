@@ -706,8 +706,8 @@ app.get("/api/companies/:symbol/price-status", (req, res) => {
 // aren't available on the current Massive plan.
 const MARKET_SNAPSHOT_ITEMS = [
     { section: "Indexes", symbol: "I:COMP", label: "NASDAQ" },
-    { section: "Indexes", symbol: "SPY", label: "S&P 500" },
-    { section: "Indexes", symbol: "IWM", label: "RUSS 2K" },
+    { section: "Indexes", symbol: "SPY", label: "S&P 500 (SPY)" },
+    { section: "Indexes", symbol: "IWM", label: "RUSS 2K (IWM)" },
 
     { section: "Rates", symbol: "US2YR", label: "US 2-YR" },
     { section: "Rates", symbol: "US10YR", label: "US 10-YR" },
