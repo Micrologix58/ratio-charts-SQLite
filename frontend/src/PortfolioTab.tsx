@@ -48,6 +48,13 @@ function money(v: number | null | undefined): string {
     return v == null ? '—' : `$${v.toFixed(2)}`;
 }
 
+function currentPriceColor(current: number | null | undefined, basis: number | null | undefined): string | undefined {
+    if (current == null || basis == null) return undefined;
+    if (current > basis) return '#4ade80';
+    if (current < basis) return '#ef4444';
+    return undefined;
+}
+
 function pct(v: number | null | undefined): string {
     return v == null ? '—' : `${v.toFixed(2)}%`;
 }
@@ -452,7 +459,7 @@ export function PortfolioTab({ onOpenChart }: Props) {
                                             <td style={tdStyle}>{h.accountName}</td>
                                             <td style={tdStyle}>{pct(h.allocationPct)}</td>
                                             <td style={tdStyle}>{money(h.basisPrice)}</td>
-                                            <td style={tdStyle}>{money(h.currentPrice)}</td>
+                                            <td style={{ ...tdStyle, color: currentPriceColor(h.currentPrice, h.basisPrice) }}>{money(h.currentPrice)}</td>
                                             <td style={tdStyle}>{num(h.currentShares)}</td>
                                             <td style={tdStyle}>{num(h.sharesToHold)}</td>
                                             <td style={tdStyle}>{money(h.investedBasis)}</td>
