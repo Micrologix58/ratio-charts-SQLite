@@ -184,6 +184,10 @@
       {
         "type": "S",
         "symbol": "POR"
+      },
+      {
+        "type": "S",
+        "symbol": "AETUF"
       }
     ]
   },
@@ -202,6 +206,18 @@
       {
         "type": "S",
         "symbol": "SPY"
+      },
+      {
+        "type": "S",
+        "symbol": "I:COMP"
+      },
+      {
+        "type": "S",
+        "symbol": "IWM"
+      },
+      {
+        "type": "S",
+        "symbol": "IWMI"
       }
     ]
   },
@@ -259,6 +275,26 @@
       {
         "type": "R",
         "expression": "US2YR/US10YR"
+      },
+      {
+        "type": "S",
+        "symbol": "C:EURUSD"
+      },
+      {
+        "type": "S",
+        "symbol": "C:GBPUSD"
+      },
+      {
+        "type": "S",
+        "symbol": "C:USDJPY"
+      },
+      {
+        "type": "S",
+        "symbol": "C:USDCAD"
+      },
+      {
+        "type": "S",
+        "symbol": "C:AUDUSD"
       }
     ]
   },
