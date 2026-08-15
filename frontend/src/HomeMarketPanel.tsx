@@ -1,7 +1,7 @@
 import React, { useEffect, useState } from "react";
 
 type MarketSnapshotRow = {
-    section: "Indexes" | "Rates" | "Commodities";
+    section: "Indexes" | "Rates" | "Currencies" | "Commodities";
     symbol: string;
     label: string;
     current: number | null;
@@ -10,11 +10,14 @@ type MarketSnapshotRow = {
     asOfDate: string | null;
 };
 
-const SECTION_ORDER: MarketSnapshotRow["section"][] = ["Indexes", "Rates", "Commodities"];
+const SECTION_ORDER: MarketSnapshotRow["section"][] = ["Indexes", "Rates", "Currencies", "Commodities"];
 
-function formatValue(v: number | null): string {
+function formatValue(v: number | null, section: MarketSnapshotRow["section"]): string {
     if (v == null) return "—";
-    return v.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    // FX pairs move in fractions of a cent -- 2 decimals rounds EUR/USD-style
+    // pairs to noise; USD/JPY-style pairs (v > 10) still read fine at 2.
+    const digits = section === "Currencies" && v < 10 ? 4 : 2;
+    return v.toLocaleString(undefined, { minimumFractionDigits: digits, maximumFractionDigits: digits });
 }
 
 function formatChange(v: number | null): { text: string; color: string } {
@@ -69,8 +72,8 @@ export function HomeMarketPanel() {
                                     return (
                                         <tr key={row.symbol} style={{ borderBottom: "1px solid #1f1f1f" }}>
                                             <td style={tdLabelStyle}>{row.label}</td>
-                                            <td style={tdNumStyle}>{formatValue(row.current)}</td>
-                                            <td style={tdNumStyle}>{formatValue(row.previous)}</td>
+                                            <td style={tdNumStyle}>{formatValue(row.current, row.section)}</td>
+                                            <td style={tdNumStyle}>{formatValue(row.previous, row.section)}</td>
                                             <td style={{ ...tdNumStyle, color: change.color, fontWeight: 600 }}>{change.text}</td>
                                         </tr>
                                     );
