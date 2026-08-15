@@ -13,7 +13,7 @@ import { AssetAllocationPanel } from "./AssetAllocationPanel";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci" | "fibextension";
 
 type CandlePoint = {
     time: string;
@@ -623,6 +623,19 @@ export default function App() {
                         }}
                     >
                         Fib
+                    </button>
+                    <button
+                        onClick={() => setActiveTool("fibextension")}
+                        title="Drag from swing start to swing end to project Fibonacci extension levels beyond the move"
+                        style={{
+                            padding: "4px 10px",
+                            background: activeTool === "fibextension" ? "#555" : "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        Fib Ext
                     </button>
                     <button
                         onClick={handleDeleteSelected}

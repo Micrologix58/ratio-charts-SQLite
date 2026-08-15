@@ -31,7 +31,7 @@ type VolumePoint = {
     color: string;
 };
 
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci" | "fibextension";
 
 type Props = {
     data: CandlePoint[] | RatioPoint[];
@@ -92,7 +92,17 @@ type OverlayFib = {
 };
 
 // 0% = anchor 1's price, 100% = anchor 2's price — standard retracement levels between them.
-const FIB_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+const FIB_RETRACEMENT_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
+// Same two anchors, but levels project past 100% — used to estimate a target beyond the move.
+const FIB_EXTENSION_RATIOS = [0, 0.618, 1, 1.272, 1.618, 2, 2.618];
+
+function fibRatiosForTool(tool: Tool): number[] {
+    return tool === "fibextension" ? FIB_EXTENSION_RATIOS : FIB_RETRACEMENT_RATIOS;
+}
+
+function fibRatiosForAnnotationType(type: string): number[] {
+    return type === "fibextension" ? FIB_EXTENSION_RATIOS : FIB_RETRACEMENT_RATIOS;
+}
 
 function toLineDash(lineStyle?: string): string | undefined {
     if (lineStyle === "dashed") return "6 4";
@@ -702,14 +712,14 @@ export function TradingViewPriceChart({
     // computation in the overlay-building effect below, but driven off the
     // in-progress draft points instead of a saved annotation.
     const draftFibLevels: FibLevel[] | null = useMemo(() => {
-        if (activeTool !== "fibonacci" || !draftStart || !draftEnd || !seriesRef.current) return null;
+        if ((activeTool !== "fibonacci" && activeTool !== "fibextension") || !draftStart || !draftEnd || !seriesRef.current) return null;
 
         const p1 = screenToTimePrice(draftStart.x, draftStart.y);
         const p2 = screenToTimePrice(draftEnd.x, draftEnd.y);
         if (!p1 || !p2) return null;
 
         const series = seriesRef.current;
-        return FIB_RATIOS.map((ratio) => {
+        return fibRatiosForTool(activeTool).map((ratio) => {
             const price = p1.price + ratio * (p2.price - p1.price);
             const y = series.priceToCoordinate(price);
             return { ratio, y: y ?? 0, price };
@@ -750,7 +760,7 @@ export function TradingViewPriceChart({
         const fibs: OverlayFib[] = [];
 
         for (const ann of overlayDeps.annotations) {
-            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline" && ann.type !== "fibonacci") continue;
+            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline" && ann.type !== "fibonacci" && ann.type !== "fibextension") continue;
 
             if (ann.type === "horizontalline") {
                 const y = series.priceToCoordinate(ann.points[0].price);
@@ -804,8 +814,8 @@ export function TradingViewPriceChart({
                     extendLeft: ann.style?.extendLeft ?? false,
                     extendRight: ann.style?.extendRight ?? false,
                 });
-            } else if (ann.type === "fibonacci") {
-                const levels = FIB_RATIOS.map((ratio) => {
+            } else if (ann.type === "fibonacci" || ann.type === "fibextension") {
+                const levels = fibRatiosForAnnotationType(ann.type).map((ratio) => {
                     const levelPrice = p1.price + ratio * (p2.price - p1.price);
                     const y = series.priceToCoordinate(levelPrice);
                     return { ratio, y: y ?? 0, price: levelPrice };
@@ -843,7 +853,7 @@ export function TradingViewPriceChart({
     }, [overlayDeps]);
 
     useEffect(() => {
-        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci") {
+        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension") {
             setDraftStart(null);
             setDraftEnd(null);
         }
@@ -936,7 +946,7 @@ export function TradingViewPriceChart({
                     // Otherwise pass events through to the chart (pan/zoom/scroll).
                     // Individual line/circle elements have their own pointerEvents:auto
                     // so click-to-select and endpoint dragging still work in select mode.
-                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || activeTool === "fibonacci" || !!dragEndpoint.current) ? "auto" : "none",
+                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || activeTool === "fibonacci" || activeTool === "fibextension" || !!dragEndpoint.current) ? "auto" : "none",
                     overflow: "visible",
                     zIndex: 20,
                     cursor: dragEndpoint.current ? "crosshair" : "default",
@@ -994,7 +1004,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci") return;
+                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension") return;
 
                     // Starting a new measurement drag replaces any previously-frozen one.
                     setDraftStart({ x, y });
@@ -1014,7 +1024,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci") || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension") || !isDrawing || !draftStart) return;
                     setDraftEnd({ x, y });
                 }}
                 onMouseUp={(e) => {
@@ -1066,7 +1076,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "fibonacci") || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "fibonacci" && activeTool !== "fibextension") || !isDrawing || !draftStart) return;
 
                     setDraftEnd({ x, y });
                     setIsDrawing(false);
@@ -1106,6 +1116,21 @@ export function TradingViewPriceChart({
                                 points: [p1, p2],
                                 style: {
                                     color: "#f59e0b",
+                                    lineWidth: 1,
+                                    lineStyle: "solid",
+                                },
+                                locked: false,
+                                createdAt: now,
+                                updatedAt: now,
+                            }
+                            : activeTool === "fibextension"
+                            ? {
+                                id: `ann-${Date.now()}`,
+                                type: "fibextension",
+                                chartKey,
+                                points: [p1, p2],
+                                style: {
+                                    color: "#a78bfa",
                                     lineWidth: 1,
                                     lineStyle: "solid",
                                 },
@@ -1411,23 +1436,24 @@ export function TradingViewPriceChart({
                     </React.Fragment>
                 )}
 
-                {draftStart && draftEnd && activeTool === "fibonacci" && draftFibLevels && (() => {
+                {draftStart && draftEnd && (activeTool === "fibonacci" || activeTool === "fibextension") && draftFibLevels && (() => {
                     const xLeft = Math.min(draftStart.x, draftEnd.x);
                     const xRight = Math.max(draftStart.x, draftEnd.x);
+                    const draftColor = activeTool === "fibextension" ? "#a78bfa" : "#f59e0b";
                     return (
                         <React.Fragment>
                             {draftFibLevels.map((lvl) => (
                                 <line
                                     key={lvl.ratio}
                                     x1={xLeft} y1={lvl.y} x2={xRight} y2={lvl.y}
-                                    stroke="#f59e0b"
+                                    stroke={draftColor}
                                     strokeWidth={1}
                                     strokeDasharray={lvl.ratio === 0 || lvl.ratio === 1 ? undefined : "4 3"}
                                     clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
                                 />
                             ))}
-                            <circle cx={draftStart.x} cy={draftStart.y} r={5} fill="#f59e0b" />
-                            <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill="#f59e0b" />
+                            <circle cx={draftStart.x} cy={draftStart.y} r={5} fill={draftColor} />
+                            <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill={draftColor} />
                         </React.Fragment>
                     );
                 })()}
