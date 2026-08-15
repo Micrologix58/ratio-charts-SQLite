@@ -1357,5 +1357,32 @@
     "locked": false,
     "createdAt": "2026-08-04T14:38:48.531Z",
     "updatedAt": "2026-08-04T14:47:20.645Z"
+  },
+  {
+    "id": "ann-1786278910312",
+    "type": "rectangle",
+    "chartKey": {
+      "mode": "S",
+      "timeframe": "D",
+      "symbol": "IAUI"
+    },
+    "points": [
+      {
+        "time": "2026-06-23",
+        "price": 50.114122533152866
+      },
+      {
+        "time": "2026-08-04",
+        "price": 47.889371991592846
+      }
+    ],
+    "style": {
+      "color": "#ffffff",
+      "lineWidth": 1,
+      "lineStyle": "solid"
+    },
+    "locked": false,
+    "createdAt": "2026-08-09T12:35:10.312Z",
+    "updatedAt": "2026-08-09T12:35:33.110Z"
   }
 ]

@@ -144,6 +144,10 @@
       {
         "type": "R",
         "expression": "USO/GLD"
+      },
+      {
+        "type": "S",
+        "symbol": "ENB"
       }
     ]
   },
