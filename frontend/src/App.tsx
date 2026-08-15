@@ -13,7 +13,7 @@ import { AssetAllocationPanel } from "./AssetAllocationPanel";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci";
 
 type CandlePoint = {
     time: string;
@@ -610,6 +610,19 @@ export default function App() {
                         }}
                     >
                         Measure
+                    </button>
+                    <button
+                        onClick={() => setActiveTool("fibonacci")}
+                        title="Drag from swing high to swing low (or vice versa) to draw Fibonacci retracement levels"
+                        style={{
+                            padding: "4px 10px",
+                            background: activeTool === "fibonacci" ? "#555" : "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        Fib
                     </button>
                     <button
                         onClick={handleDeleteSelected}

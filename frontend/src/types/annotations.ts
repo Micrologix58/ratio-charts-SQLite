@@ -1,5 +1,5 @@
-export type AnnotationTool = 'select' | 'trendline' | 'rectangle' | 'horizontalline';
-export type AnnotationType = 'trendline' | 'rectangle' | 'horizontalline';
+export type AnnotationTool = 'select' | 'trendline' | 'rectangle' | 'horizontalline' | 'fibonacci';
+export type AnnotationType = 'trendline' | 'rectangle' | 'horizontalline' | 'fibonacci';
 
 export interface ChartKey {
     mode: 'R' | 'S';
@@ -54,7 +54,18 @@ export interface HorizontalLineAnnotation {
     updatedAt: string;
 }
 
-export type Annotation = TrendlineAnnotation | RectangleAnnotation | HorizontalLineAnnotation;
+export interface FibonacciAnnotation {
+    id: string;
+    type: 'fibonacci';
+    chartKey: ChartKey;
+    points: [TimePricePoint, TimePricePoint]; // anchor 1 = 0% level, anchor 2 = 100% level
+    style: AnnotationStyle;
+    locked?: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type Annotation = TrendlineAnnotation | RectangleAnnotation | HorizontalLineAnnotation | FibonacciAnnotation;
 
 export interface AnnotationResponse {
     success: boolean;

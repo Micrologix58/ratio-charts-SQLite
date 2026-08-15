@@ -31,7 +31,7 @@ type VolumePoint = {
     color: string;
 };
 
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci";
 
 type Props = {
     data: CandlePoint[] | RatioPoint[];
@@ -73,6 +73,26 @@ type OverlayRect = {
     width: number;
     dashArray?: string;
 };
+
+type FibLevel = { ratio: number; y: number; price: number };
+
+type OverlayFib = {
+    id: string;
+    // Anchor pixel positions (the original drag endpoints) — used for endpoint handles/dragging.
+    anchorX1: number;
+    anchorY1: number;
+    anchorX2: number;
+    anchorY2: number;
+    // Level lines span the box's x-range, not the full pane.
+    xLeft: number;
+    xRight: number;
+    levels: FibLevel[];
+    color: string;
+    width: number;
+};
+
+// 0% = anchor 1's price, 100% = anchor 2's price — standard retracement levels between them.
+const FIB_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 
 function toLineDash(lineStyle?: string): string | undefined {
     if (lineStyle === "dashed") return "6 4";
@@ -179,6 +199,7 @@ export function TradingViewPriceChart({
 
     const [overlayLines, setOverlayLines] = useState<OverlayLine[]>([]);
     const [overlayRects, setOverlayRects] = useState<OverlayRect[]>([]);
+    const [overlayFibs, setOverlayFibs] = useState<OverlayFib[]>([]);
     const [chartWidth, setChartWidth] = useState(0);
     const [renderKey, setRenderKey] = useState(0);
     // Inner pane dimensions — excludes price scale (right) and time axis (bottom).
@@ -275,6 +296,18 @@ export function TradingViewPriceChart({
             if (hitTestRectangle(x, y, overlayRects[i])) return overlayRects[i].id;
         }
 
+        for (let i = overlayFibs.length - 1; i >= 0; i--) {
+            const fib = overlayFibs[i];
+
+            if (distance(x, y, fib.anchorX1, fib.anchorY1) <= endpointRadius) return fib.id;
+            if (distance(x, y, fib.anchorX2, fib.anchorY2) <= endpointRadius) return fib.id;
+
+            const hit = fib.levels.some(
+                (lvl) => distancePointToSegment(x, y, fib.xLeft, lvl.y, fib.xRight, lvl.y) <= lineTolerance
+            );
+            if (hit) return fib.id;
+        }
+
         return null;
     }
 
@@ -293,6 +326,13 @@ export function TradingViewPriceChart({
         if (rect) {
             if (distance(x, y, rect.x1, rect.y1) <= endpointRadius) return 0;
             if (distance(x, y, rect.x2, rect.y2) <= endpointRadius) return 1;
+            return null;
+        }
+
+        const fib = overlayFibs.find((f) => f.id === annotationId);
+        if (fib) {
+            if (distance(x, y, fib.anchorX1, fib.anchorY1) <= endpointRadius) return 0;
+            if (distance(x, y, fib.anchorX2, fib.anchorY2) <= endpointRadius) return 1;
             return null;
         }
 
@@ -658,6 +698,25 @@ export function TradingViewPriceChart({
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [activeTool, draftStart, draftEnd, data]);
 
+    // Live Fibonacci levels while dragging — mirrors the persisted-annotation
+    // computation in the overlay-building effect below, but driven off the
+    // in-progress draft points instead of a saved annotation.
+    const draftFibLevels: FibLevel[] | null = useMemo(() => {
+        if (activeTool !== "fibonacci" || !draftStart || !draftEnd || !seriesRef.current) return null;
+
+        const p1 = screenToTimePrice(draftStart.x, draftStart.y);
+        const p2 = screenToTimePrice(draftEnd.x, draftEnd.y);
+        if (!p1 || !p2) return null;
+
+        const series = seriesRef.current;
+        return FIB_RATIOS.map((ratio) => {
+            const price = p1.price + ratio * (p2.price - p1.price);
+            const y = series.priceToCoordinate(price);
+            return { ratio, y: y ?? 0, price };
+        }).filter((lvl) => Number.isFinite(lvl.y));
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [activeTool, draftStart, draftEnd, data]);
+
     const overlayDeps = useMemo(
         () => ({
             annotations,
@@ -688,9 +747,10 @@ export function TradingViewPriceChart({
 
         const lines: OverlayLine[] = [];
         const rects: OverlayRect[] = [];
+        const fibs: OverlayFib[] = [];
 
         for (const ann of overlayDeps.annotations) {
-            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline") continue;
+            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline" && ann.type !== "fibonacci") continue;
 
             if (ann.type === "horizontalline") {
                 const y = series.priceToCoordinate(ann.points[0].price);
@@ -744,6 +804,25 @@ export function TradingViewPriceChart({
                     extendLeft: ann.style?.extendLeft ?? false,
                     extendRight: ann.style?.extendRight ?? false,
                 });
+            } else if (ann.type === "fibonacci") {
+                const levels = FIB_RATIOS.map((ratio) => {
+                    const levelPrice = p1.price + ratio * (p2.price - p1.price);
+                    const y = series.priceToCoordinate(levelPrice);
+                    return { ratio, y: y ?? 0, price: levelPrice };
+                }).filter((lvl) => Number.isFinite(lvl.y));
+
+                fibs.push({
+                    id: ann.id,
+                    anchorX1: x1,
+                    anchorY1: y1,
+                    anchorX2: x2,
+                    anchorY2: y2,
+                    xLeft: Math.min(x1, x2),
+                    xRight: Math.max(x1, x2),
+                    levels,
+                    color: ann.style?.color || "#4aa3ff",
+                    width: ann.style?.lineWidth || 2,
+                });
             } else {
                 rects.push({
                     id: ann.id,
@@ -760,10 +839,11 @@ export function TradingViewPriceChart({
 
         setOverlayLines(lines);
         setOverlayRects(rects);
+        setOverlayFibs(fibs);
     }, [overlayDeps]);
 
     useEffect(() => {
-        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure") {
+        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci") {
             setDraftStart(null);
             setDraftEnd(null);
         }
@@ -856,7 +936,7 @@ export function TradingViewPriceChart({
                     // Otherwise pass events through to the chart (pan/zoom/scroll).
                     // Individual line/circle elements have their own pointerEvents:auto
                     // so click-to-select and endpoint dragging still work in select mode.
-                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || !!dragEndpoint.current) ? "auto" : "none",
+                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || activeTool === "fibonacci" || !!dragEndpoint.current) ? "auto" : "none",
                     overflow: "visible",
                     zIndex: 20,
                     cursor: dragEndpoint.current ? "crosshair" : "default",
@@ -914,7 +994,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure") return;
+                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci") return;
 
                     // Starting a new measurement drag replaces any previously-frozen one.
                     setDraftStart({ x, y });
@@ -934,7 +1014,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure") || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci") || !isDrawing || !draftStart) return;
                     setDraftEnd({ x, y });
                 }}
                 onMouseUp={(e) => {
@@ -986,7 +1066,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle") || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "fibonacci") || !isDrawing || !draftStart) return;
 
                     setDraftEnd({ x, y });
                     setIsDrawing(false);
@@ -1012,6 +1092,21 @@ export function TradingViewPriceChart({
                                 style: {
                                     color: "#4aa3ff",
                                     lineWidth: 2,
+                                    lineStyle: "solid",
+                                },
+                                locked: false,
+                                createdAt: now,
+                                updatedAt: now,
+                            }
+                            : activeTool === "fibonacci"
+                            ? {
+                                id: `ann-${Date.now()}`,
+                                type: "fibonacci",
+                                chartKey,
+                                points: [p1, p2],
+                                style: {
+                                    color: "#f59e0b",
+                                    lineWidth: 1,
                                     lineStyle: "solid",
                                 },
                                 locked: false,
@@ -1197,6 +1292,67 @@ export function TradingViewPriceChart({
                     );
                 })}
 
+                {overlayFibs.map((fib) => {
+                    const isSelected = fib.id === selectedAnnotationId;
+
+                    const drag = dragEndpoint.current;
+                    const isDraggingThis = drag && drag.annotationId === fib.id;
+                    const ax1 = isDraggingThis && drag.endpoint === 0 ? drag.liveX : fib.anchorX1;
+                    const ay1 = isDraggingThis && drag.endpoint === 0 ? drag.liveY : fib.anchorY1;
+                    const ax2 = isDraggingThis && drag.endpoint === 1 ? drag.liveX : fib.anchorX2;
+                    const ay2 = isDraggingThis && drag.endpoint === 1 ? drag.liveY : fib.anchorY2;
+
+                    return (
+                        <React.Fragment key={fib.id}>
+                            {fib.levels.map((lvl) => (
+                                <React.Fragment key={lvl.ratio}>
+                                    {/* Invisible wide stroke for easier hit-testing */}
+                                    <line
+                                        x1={fib.xLeft} y1={lvl.y} x2={fib.xRight} y2={lvl.y}
+                                        stroke="transparent" strokeWidth={16}
+                                        style={{ pointerEvents: "auto", cursor: "pointer" }}
+                                    />
+                                    <line
+                                        x1={fib.xLeft} y1={lvl.y} x2={fib.xRight} y2={lvl.y}
+                                        stroke={fib.color}
+                                        strokeWidth={isSelected ? fib.width + 1 : fib.width}
+                                        strokeDasharray={lvl.ratio === 0 || lvl.ratio === 1 ? undefined : "4 3"}
+                                        opacity={isSelected ? 1 : 0.85}
+                                        clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                                        style={{ pointerEvents: "none" }}
+                                    />
+                                    <text
+                                        x={fib.xRight + 4}
+                                        y={lvl.y}
+                                        dominantBaseline="middle"
+                                        style={{
+                                            fill: fib.color, fontSize: 11, fontFamily: "Arial, sans-serif",
+                                            pointerEvents: "none", userSelect: "none",
+                                        }}
+                                    >
+                                        {(lvl.ratio * 100).toFixed(1)}% — {lvl.price.toFixed(2)}
+                                    </text>
+                                </React.Fragment>
+                            ))}
+                            {/* Anchor handles at the two drawn points */}
+                            <circle
+                                cx={ax1} cy={ay1} r={isSelected ? 7 : 5}
+                                fill={isDraggingThis && drag.endpoint === 0 ? "#22c55e" : fib.color}
+                                stroke={isSelected ? "#ffffff" : "none"}
+                                strokeWidth={isSelected ? 2 : 0}
+                                style={{ pointerEvents: "auto", cursor: isSelected ? "grab" : "pointer" }}
+                            />
+                            <circle
+                                cx={ax2} cy={ay2} r={isSelected ? 7 : 5}
+                                fill={isDraggingThis && drag.endpoint === 1 ? "#22c55e" : fib.color}
+                                stroke={isSelected ? "#ffffff" : "none"}
+                                strokeWidth={isSelected ? 2 : 0}
+                                style={{ pointerEvents: "auto", cursor: isSelected ? "grab" : "pointer" }}
+                            />
+                        </React.Fragment>
+                    );
+                })}
+
                 {/* Centered watermark — renders behind all annotation lines */}
                 {watermark && (
                     <text
@@ -1254,6 +1410,27 @@ export function TradingViewPriceChart({
                         <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill="#22c55e" />
                     </React.Fragment>
                 )}
+
+                {draftStart && draftEnd && activeTool === "fibonacci" && draftFibLevels && (() => {
+                    const xLeft = Math.min(draftStart.x, draftEnd.x);
+                    const xRight = Math.max(draftStart.x, draftEnd.x);
+                    return (
+                        <React.Fragment>
+                            {draftFibLevels.map((lvl) => (
+                                <line
+                                    key={lvl.ratio}
+                                    x1={xLeft} y1={lvl.y} x2={xRight} y2={lvl.y}
+                                    stroke="#f59e0b"
+                                    strokeWidth={1}
+                                    strokeDasharray={lvl.ratio === 0 || lvl.ratio === 1 ? undefined : "4 3"}
+                                    clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                                />
+                            ))}
+                            <circle cx={draftStart.x} cy={draftStart.y} r={5} fill="#f59e0b" />
+                            <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill="#f59e0b" />
+                        </React.Fragment>
+                    );
+                })()}
 
                 {draftStart && draftEnd && activeTool === "measure" && measureResult && (() => {
                     const up = measureResult.priceDiff >= 0;
