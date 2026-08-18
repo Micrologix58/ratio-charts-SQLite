@@ -53,6 +53,12 @@ type Props = {
     // main chart (independent price scale). Empty/undefined array removes the pane.
     secondaryData?: { time: string; value: number }[];
     secondaryLabel?: string;
+
+    // SMA overlays on the main pane (same price scale as the main series) and
+    // an RSI(14) indicator in its own pane — all computed client-side from `data`.
+    showSma50?: boolean;
+    showSma200?: boolean;
+    showRsi?: boolean;
 };
 
 type OverlayLine = {
@@ -158,6 +164,46 @@ function getPriceAtPoint(point: CandlePoint | RatioPoint): number {
     return "value" in point ? point.value : point.close;
 }
 
+type IndicatorPoint = { time: string; value: number };
+
+function computeSMA(data: (CandlePoint | RatioPoint)[], period: number): IndicatorPoint[] {
+    const out: IndicatorPoint[] = [];
+    let sum = 0;
+    for (let i = 0; i < data.length; i++) {
+        const price = getPriceAtPoint(data[i]);
+        sum += price;
+        if (i >= period) sum -= getPriceAtPoint(data[i - period]);
+        if (i >= period - 1) out.push({ time: data[i].time, value: sum / period });
+    }
+    return out;
+}
+
+// Wilder's RSI (the standard 14-period formula most platforms default to).
+function computeRSI(data: (CandlePoint | RatioPoint)[], period = 14): IndicatorPoint[] {
+    const out: IndicatorPoint[] = [];
+    if (data.length <= period) return out;
+
+    let gainSum = 0;
+    let lossSum = 0;
+    for (let i = 1; i <= period; i++) {
+        const diff = getPriceAtPoint(data[i]) - getPriceAtPoint(data[i - 1]);
+        if (diff >= 0) gainSum += diff; else lossSum -= diff;
+    }
+    let avgGain = gainSum / period;
+    let avgLoss = lossSum / period;
+    out.push({ time: data[period].time, value: avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss) });
+
+    for (let i = period + 1; i < data.length; i++) {
+        const diff = getPriceAtPoint(data[i]) - getPriceAtPoint(data[i - 1]);
+        const gain = diff > 0 ? diff : 0;
+        const loss = diff < 0 ? -diff : 0;
+        avgGain = (avgGain * (period - 1) + gain) / period;
+        avgLoss = (avgLoss * (period - 1) + loss) / period;
+        out.push({ time: data[i].time, value: avgLoss === 0 ? 100 : 100 - 100 / (1 + avgGain / avgLoss) });
+    }
+    return out;
+}
+
 function formatVolume(v: unknown): string {
     const num = typeof v === "number" ? v : Number(v);
     if (!Number.isFinite(num)) return ""; // or return "–"
@@ -183,6 +229,9 @@ export function TradingViewPriceChart({
     chartKey,
     secondaryData,
     secondaryLabel,
+    showSma50 = false,
+    showSma200 = false,
+    showRsi = false,
 }: Props) {
 
     const useLineSeries = isRatio || isLineOnly;
@@ -193,6 +242,11 @@ export function TradingViewPriceChart({
     // Second pane's line series — created on demand when secondaryData first
     // arrives, removed (along with its pane) when it goes away.
     const secondSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    // SMA overlays (pane 0, same scale as the main series) and RSI (its own pane).
+    const sma50SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const sma200SeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const rsiSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    const rsiPaneIndexRef = useRef<number | null>(null);
     // Bumped whenever the main chart-creation effect (re)runs, so the
     // second-pane effect knows to rebuild against a fresh chart instance.
     const [chartGeneration, setChartGeneration] = useState(0);
@@ -655,6 +709,10 @@ export function TradingViewPriceChart({
             seriesRef.current = null;
             volumeSeriesRef.current = null;
             secondSeriesRef.current = null;
+            sma50SeriesRef.current = null;
+            sma200SeriesRef.current = null;
+            rsiSeriesRef.current = null;
+            rsiPaneIndexRef.current = null;
         };
     }, [height, isRatio, isLineOnly]);
 
@@ -734,6 +792,104 @@ export function TradingViewPriceChart({
         secondSeriesRef.current.applyOptions({ title: secondaryLabel || "Compare" });
         secondSeriesRef.current.setData(secondaryData);
     }, [secondaryData, secondaryLabel, chartGeneration]);
+
+    const sma50Data = useMemo(() => (showSma50 ? computeSMA(data, 50) : []), [data, showSma50]);
+    const sma200Data = useMemo(() => (showSma200 ? computeSMA(data, 200) : []), [data, showSma200]);
+    const rsiData = useMemo(() => (showRsi ? computeRSI(data, 14) : []), [data, showRsi]);
+
+    // SMA overlays — same pane and price scale as the main series, so they're
+    // directly comparable to price (not a separate indicator pane).
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        if (!showSma50 || sma50Data.length === 0) {
+            if (sma50SeriesRef.current) {
+                chart.removeSeries(sma50SeriesRef.current);
+                sma50SeriesRef.current = null;
+            }
+            return;
+        }
+
+        if (!sma50SeriesRef.current) {
+            sma50SeriesRef.current = chart.addSeries(LineSeries, {
+                color: "#22c55e",
+                lineWidth: 1,
+                title: "SMA 50",
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+        }
+        sma50SeriesRef.current.setData(sma50Data);
+    }, [showSma50, sma50Data, chartGeneration]);
+
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        if (!showSma200 || sma200Data.length === 0) {
+            if (sma200SeriesRef.current) {
+                chart.removeSeries(sma200SeriesRef.current);
+                sma200SeriesRef.current = null;
+            }
+            return;
+        }
+
+        if (!sma200SeriesRef.current) {
+            sma200SeriesRef.current = chart.addSeries(LineSeries, {
+                color: "#ab47bc",
+                lineWidth: 1,
+                title: "SMA 200",
+                priceLineVisible: false,
+                lastValueVisible: false,
+            });
+        }
+        sma200SeriesRef.current.setData(sma200Data);
+    }, [showSma200, sma200Data, chartGeneration]);
+
+    // RSI pane — shares pane index 2 with the Compare pane's index 1 when both
+    // are active, or takes index 1 by itself so panes stay densely packed
+    // (moveToPane keeps it in sync if Compare gets toggled on/off around it).
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        const hasCompare = secondaryData && secondaryData.length > 0;
+        const desiredIndex = hasCompare ? 2 : 1;
+
+        if (!showRsi || rsiData.length === 0) {
+            if (rsiSeriesRef.current) {
+                const idx = rsiPaneIndexRef.current;
+                rsiSeriesRef.current = null;
+                rsiPaneIndexRef.current = null;
+                if (idx != null) {
+                    try {
+                        chart.removePane(idx);
+                    } catch {
+                        // Pane may already be gone — ignore.
+                    }
+                }
+            }
+            return;
+        }
+
+        if (!rsiSeriesRef.current) {
+            rsiSeriesRef.current = chart.addSeries(LineSeries, {
+                color: "#facc15",
+                lineWidth: 1,
+                title: "RSI (14)",
+            }, desiredIndex);
+            rsiPaneIndexRef.current = desiredIndex;
+            chart.panes()[desiredIndex]?.setStretchFactor(0.35);
+            rsiSeriesRef.current.createPriceLine({ price: 70, color: "#666666", lineWidth: 1, lineStyle: 2, title: "70" });
+            rsiSeriesRef.current.createPriceLine({ price: 30, color: "#666666", lineWidth: 1, lineStyle: 2, title: "30" });
+        } else if (rsiPaneIndexRef.current !== desiredIndex) {
+            rsiSeriesRef.current.moveToPane(desiredIndex);
+            rsiPaneIndexRef.current = desiredIndex;
+        }
+
+        rsiSeriesRef.current.setData(rsiData);
+    }, [showRsi, rsiData, secondaryData, chartGeneration]);
 
     // Measure-tool result — snaps both ends to actual bar close prices (not the
     // pixel-derived cursor price) so it reports the same closing-price diff/% TV does.

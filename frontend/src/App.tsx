@@ -141,6 +141,11 @@ export default function App() {
     const [secondSymbol, setSecondSymbol] = useState<string | null>(null);
     const [secondSeries, setSecondSeries] = useState<{ time: string; value: number }[]>([]);
 
+    // Indicator toggles — SMA overlays on the main pane, RSI in its own pane
+    const [showSma50, setShowSma50] = useState(false);
+    const [showSma200, setShowSma200] = useState(false);
+    const [showRsi, setShowRsi] = useState(false);
+
     const [series, setSeries] = useState<CandlePoint[] | RatioPoint[]>([]);
     const [isRatio, setIsRatio] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -612,6 +617,19 @@ export default function App() {
                     </button>
                 )}
 
+                <label style={{ marginLeft: 10, display: "inline-flex", alignItems: "center", gap: 4, color: "#ccc", fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={showSma50} onChange={(e) => setShowSma50(e.target.checked)} />
+                    SMA 50
+                </label>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#ccc", fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={showSma200} onChange={(e) => setShowSma200(e.target.checked)} />
+                    SMA 200
+                </label>
+                <label style={{ display: "inline-flex", alignItems: "center", gap: 4, color: "#ccc", fontSize: 13, cursor: "pointer" }}>
+                    <input type="checkbox" checked={showRsi} onChange={(e) => setShowRsi(e.target.checked)} />
+                    RSI
+                </label>
+
                 {loading && <span style={{ color: "#aaa" }}>Loading…</span>}
                 {error && <span style={{ color: "#ff6b6b" }}>{error}</span>}
             </div>
@@ -880,6 +898,9 @@ export default function App() {
                                     chartKey={chartKey}
                                     secondaryData={secondSeries}
                                     secondaryLabel={secondSymbol ?? undefined}
+                                    showSma50={showSma50}
+                                    showSma200={showSma200}
+                                    showRsi={showRsi}
                                 />
                             </ChartErrorBoundary>
                         </div>
