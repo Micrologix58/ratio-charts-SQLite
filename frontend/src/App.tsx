@@ -136,6 +136,11 @@ export default function App() {
     const [expression, setExpression] = useState("CNQ/SPY");
     const [inputValue, setInputValue] = useState("CNQ");
 
+    // Second chart pane (optional comparison symbol), independent of mode/expression
+    const [secondSymbolInput, setSecondSymbolInput] = useState("");
+    const [secondSymbol, setSecondSymbol] = useState<string | null>(null);
+    const [secondSeries, setSecondSeries] = useState<{ time: string; value: number }[]>([]);
+
     const [series, setSeries] = useState<CandlePoint[] | RatioPoint[]>([]);
     const [isRatio, setIsRatio] = useState(false);
     const [loading, setLoading] = useState(false);
@@ -207,6 +212,29 @@ export default function App() {
             .catch(() => { if (!cancelled) setFundamentals(null); });
         return () => { cancelled = true; };
     }, [mode, symbol]);
+
+    // Second chart pane data — fetches whenever the comparison symbol or timeframe changes
+    useEffect(() => {
+        if (!secondSymbol) { setSecondSeries([]); return; }
+        let cancelled = false;
+        fetchOhlc(secondSymbol, tf)
+            .then(bars => {
+                if (cancelled) return;
+                setSecondSeries(bars.map(b => ({ time: b.time, value: b.close })));
+            })
+            .catch(() => { if (!cancelled) setSecondSeries([]); });
+        return () => { cancelled = true; };
+    }, [secondSymbol, tf]);
+
+    function handleAddSecondSymbol() {
+        const value = secondSymbolInput.trim().toUpperCase();
+        setSecondSymbol(value || null);
+    }
+
+    function handleClearSecondSymbol() {
+        setSecondSymbolInput("");
+        setSecondSymbol(null);
+    }
 
     // Escape key deselects the current annotation
     useEffect(() => {
@@ -541,6 +569,49 @@ export default function App() {
                     Load
                 </button>
 
+                <span style={{ marginLeft: 8, color: "#aaa" }}>Compare:</span>
+                <input
+                    value={secondSymbolInput}
+                    onChange={(e) => setSecondSymbolInput(e.target.value)}
+                    onKeyDown={(e) => { if (e.key === "Enter") handleAddSecondSymbol(); }}
+                    placeholder="e.g. VIX"
+                    title="Add a second symbol as a line chart in a separate pane below, with its own price scale"
+                    style={{
+                        width: 100,
+                        background: "#222",
+                        color: "#fff",
+                        border: "1px solid #666",
+                        padding: "6px 8px",
+                    }}
+                />
+                <button
+                    onClick={handleAddSecondSymbol}
+                    style={{
+                        padding: "6px 10px",
+                        background: "#222",
+                        color: "#fff",
+                        border: "1px solid #666",
+                        cursor: "pointer",
+                    }}
+                >
+                    Add
+                </button>
+                {secondSymbol && (
+                    <button
+                        onClick={handleClearSecondSymbol}
+                        title={`Remove ${secondSymbol} pane`}
+                        style={{
+                            padding: "6px 10px",
+                            background: "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        {secondSymbol} ✕
+                    </button>
+                )}
+
                 {loading && <span style={{ color: "#aaa" }}>Loading…</span>}
                 {error && <span style={{ color: "#ff6b6b" }}>{error}</span>}
             </div>
@@ -807,6 +878,8 @@ export default function App() {
                                     onCreateAnnotation={handleCreateAnnotation}
                                     onUpdateAnnotation={handleUpdateAnnotation}
                                     chartKey={chartKey}
+                                    secondaryData={secondSeries}
+                                    secondaryLabel={secondSymbol ?? undefined}
                                 />
                             </ChartErrorBoundary>
                         </div>

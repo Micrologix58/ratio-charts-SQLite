@@ -48,6 +48,11 @@ type Props = {
     onUpdateAnnotation?: (id: string, points: [{ time: string; price: number }, { time: string; price: number }]) => void;
     watermark?: string;
     chartKey: ChartKey;
+
+    // Optional second symbol, drawn as a line chart in its own pane below the
+    // main chart (independent price scale). Empty/undefined array removes the pane.
+    secondaryData?: { time: string; value: number }[];
+    secondaryLabel?: string;
 };
 
 type OverlayLine = {
@@ -176,6 +181,8 @@ export function TradingViewPriceChart({
     onUpdateAnnotation,
     watermark,
     chartKey,
+    secondaryData,
+    secondaryLabel,
 }: Props) {
 
     const useLineSeries = isRatio || isLineOnly;
@@ -183,6 +190,12 @@ export function TradingViewPriceChart({
     const chartRef = useRef<IChartApi | null>(null);
     const seriesRef = useRef<ISeriesApi<"Candlestick"> | ISeriesApi<"Line"> | null>(null);
     const volumeSeriesRef = useRef<ISeriesApi<"Histogram"> | null>(null);
+    // Second pane's line series — created on demand when secondaryData first
+    // arrives, removed (along with its pane) when it goes away.
+    const secondSeriesRef = useRef<ISeriesApi<"Line"> | null>(null);
+    // Bumped whenever the main chart-creation effect (re)runs, so the
+    // second-pane effect knows to rebuild against a fresh chart instance.
+    const [chartGeneration, setChartGeneration] = useState(0);
     // Ref so the subscribeClick closure always has the latest onSelectAnnotation
     // without needing to re-create the chart when the prop changes.
     const onSelectAnnotationRef = useRef(onSelectAnnotation);
@@ -414,6 +427,11 @@ export function TradingViewPriceChart({
             layout: {
                 background: { type: ColorType.Solid, color: "#111111" },
                 textColor: "#cccccc",
+                panes: {
+                    separatorColor: "#333333",
+                    separatorHoverColor: "rgba(74, 163, 255, 0.15)",
+                    enableResize: true,
+                },
             },
             grid: {
                 vertLines: { color: "#222222" },
@@ -449,6 +467,11 @@ export function TradingViewPriceChart({
 
         chartRef.current = chart;
         seriesRef.current = priceSeries;
+        // Fresh chart instance -- any second-pane series from before belonged to
+        // the torn-down chart, so drop the ref and bump chartGeneration to let
+        // the second-pane effect below know it needs to rebuild against this one.
+        secondSeriesRef.current = null;
+        setChartGeneration((g) => g + 1);
 
         // Re-render the SVG overlay whenever the visible time range changes (pan / horizontal zoom).
         // subscribeVisibleTimeRangeChange returns void in this version of lightweight-charts,
@@ -463,7 +486,11 @@ export function TradingViewPriceChart({
             // 34px is the default time axis height and works well as a fallback.
             const timeAxisH = 34;
             const pw = tw > 0 ? tw : container.clientWidth;
-            const ph = container.clientHeight - timeAxisH;
+            // Prefer pane 0's own height when a second pane exists (the annotation
+            // overlay only ever draws in pane 0) -- container.clientHeight covers
+            // every pane stacked together and would overstate pane 0's real size.
+            const pane0Height = chart.panes()[0]?.getHeight();
+            const ph = pane0Height && pane0Height > 0 ? pane0Height : container.clientHeight - timeAxisH;
             setPaneWidth(pw);
             setPaneHeight(ph > 0 ? ph : container.clientHeight);
         }
@@ -627,6 +654,7 @@ export function TradingViewPriceChart({
             chartRef.current = null;
             seriesRef.current = null;
             volumeSeriesRef.current = null;
+            secondSeriesRef.current = null;
         };
     }, [height, isRatio, isLineOnly]);
 
@@ -670,6 +698,42 @@ export function TradingViewPriceChart({
 
         chartRef.current.timeScale().fitContent();
     }, [data, isRatio, isLineOnly]);
+
+    // Second pane (optional comparison symbol) — created on demand when
+    // secondaryData first arrives, removed (pane + series) when it's cleared.
+    // Runs after the effect above so chartRef is guaranteed to be set.
+    useEffect(() => {
+        const chart = chartRef.current;
+        if (!chart) return;
+
+        const hasData = secondaryData && secondaryData.length > 0;
+
+        if (!hasData) {
+            if (secondSeriesRef.current) {
+                secondSeriesRef.current = null;
+                try {
+                    chart.removePane(1);
+                } catch {
+                    // Pane may already be gone (e.g. chart was just re-created) — ignore.
+                }
+            }
+            return;
+        }
+
+        if (!secondSeriesRef.current) {
+            secondSeriesRef.current = chart.addSeries(LineSeries, {
+                color: "#e9822f",
+                lineWidth: 2,
+                title: secondaryLabel || "Compare",
+            }, 1);
+            // Keep the main pane dominant by default; the user can drag the
+            // separator (layout.panes.enableResize) to adjust from there.
+            chart.panes()[1]?.setStretchFactor(0.35);
+        }
+
+        secondSeriesRef.current.applyOptions({ title: secondaryLabel || "Compare" });
+        secondSeriesRef.current.setData(secondaryData);
+    }, [secondaryData, secondaryLabel, chartGeneration]);
 
     // Measure-tool result — snaps both ends to actual bar close prices (not the
     // pixel-derived cursor price) so it reports the same closing-price diff/% TV does.
