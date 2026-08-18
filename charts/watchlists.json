@@ -37,10 +37,6 @@
       },
       {
         "type": "S",
-        "symbol": "C:XAUUSD"
-      },
-      {
-        "type": "S",
         "symbol": "C:XAGUSD"
       },
       {
@@ -52,10 +48,6 @@
         "expression": "C:XAUUSD/SPY"
       },
       {
-        "type": "S",
-        "symbol": "USAS"
-      },
-      {
         "type": "R",
         "expression": "USAS/C:XAUUSD"
       },
@@ -65,7 +57,7 @@
       },
       {
         "type": "S",
-        "symbol": "GOLD"
+        "symbol": "C:XAUUSD"
       }
     ]
   },
@@ -323,6 +315,24 @@
       {
         "type": "S",
         "symbol": "AA"
+      }
+    ]
+  },
+  {
+    "id": "wl-1787057087672",
+    "name": "Miners",
+    "entries": [
+      {
+        "type": "S",
+        "symbol": "CMCL"
+      },
+      {
+        "type": "S",
+        "symbol": "USAS"
+      },
+      {
+        "type": "S",
+        "symbol": "AUMBF"
       }
     ]
   }
