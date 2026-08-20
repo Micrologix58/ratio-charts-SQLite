@@ -1614,33 +1614,6 @@
     "updatedAt": "2026-08-17T12:53:34.994Z"
   },
   {
-    "id": "ann-1786971216389",
-    "type": "rectangle",
-    "chartKey": {
-      "mode": "S",
-      "timeframe": "D",
-      "symbol": "SIL"
-    },
-    "points": [
-      {
-        "time": "2026-08-05",
-        "price": 57.587951518685756
-      },
-      {
-        "time": "2026-08-05",
-        "price": 57.587951518685756
-      }
-    ],
-    "style": {
-      "color": "#4aa3ff",
-      "lineWidth": 2,
-      "lineStyle": "solid"
-    },
-    "locked": false,
-    "createdAt": "2026-08-17T12:53:36.389Z",
-    "updatedAt": "2026-08-17T12:53:36.389Z"
-  },
-  {
     "id": "ann-1786971342658",
     "type": "rectangle",
     "chartKey": {
@@ -1720,5 +1693,90 @@
     "locked": false,
     "createdAt": "2026-08-18T17:08:37.120Z",
     "updatedAt": "2026-08-18T17:09:13.433Z"
+  },
+  {
+    "id": "ann-1787145007845",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "R",
+      "timeframe": "M",
+      "expression": "USO/GLD"
+    },
+    "points": [
+      {
+        "time": "2014-05-30",
+        "price": 2.509873370113565
+      },
+      {
+        "time": "2022-09-30",
+        "price": -0.19434018610278025
+      }
+    ],
+    "style": {
+      "color": "#f59e0b",
+      "lineWidth": 1,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": false
+    },
+    "locked": false,
+    "createdAt": "2026-08-19T13:10:07.845Z",
+    "updatedAt": "2026-08-19T13:10:10.901Z"
+  },
+  {
+    "id": "ann-1787145019402",
+    "type": "trendline",
+    "chartKey": {
+      "mode": "R",
+      "timeframe": "M",
+      "expression": "USO/GLD"
+    },
+    "points": [
+      {
+        "time": "2016-02-29",
+        "price": 0.6122703583900496
+      },
+      {
+        "time": "2022-09-30",
+        "price": -0.1839990252759491
+      }
+    ],
+    "style": {
+      "color": "#f59e0b",
+      "lineWidth": 1,
+      "lineStyle": "solid",
+      "extendLeft": false,
+      "extendRight": false
+    },
+    "locked": false,
+    "createdAt": "2026-08-19T13:10:19.402Z",
+    "updatedAt": "2026-08-19T13:10:22.866Z"
+  },
+  {
+    "id": "ann-1787182670253",
+    "type": "fibonacci",
+    "chartKey": {
+      "mode": "S",
+      "timeframe": "D",
+      "symbol": "RIO"
+    },
+    "points": [
+      {
+        "time": "2026-03-20",
+        "price": 82.48919471665957
+      },
+      {
+        "time": "2026-06-02",
+        "price": 112.11997869620792
+      }
+    ],
+    "style": {
+      "color": "#94a3b8",
+      "lineWidth": 1,
+      "lineStyle": "solid"
+    },
+    "locked": false,
+    "createdAt": "2026-08-19T23:37:50.252Z",
+    "updatedAt": "2026-08-19T23:38:33.281Z"
   }
 ]

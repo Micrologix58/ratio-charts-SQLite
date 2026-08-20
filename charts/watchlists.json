@@ -315,6 +315,10 @@
       {
         "type": "S",
         "symbol": "AA"
+      },
+      {
+        "type": "S",
+        "symbol": "RIO"
       }
     ]
   },
