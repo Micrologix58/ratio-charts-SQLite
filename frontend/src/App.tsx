@@ -10,6 +10,7 @@ import type { Annotation, ChartKey } from "./types/annotations";
 import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi";
 import { HomeMarketPanel } from "./HomeMarketPanel";
 import { AssetAllocationPanel } from "./AssetAllocationPanel";
+import { DipFinderPanel } from "./DipFinderPanel";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
@@ -950,6 +951,9 @@ export default function App() {
                     <HomeMarketPanel />
                     <div style={{ flex: 1, overflow: "auto" }}>
                         <AssetAllocationPanel />
+                    </div>
+                    <div style={{ flex: 1, overflow: "auto" }}>
+                        <DipFinderPanel onOpenChart={handleOpenChartSymbol} />
                     </div>
                 </div>
             )}

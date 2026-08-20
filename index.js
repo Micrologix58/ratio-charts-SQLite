@@ -728,12 +728,11 @@ const MARKET_SNAPSHOT_ITEMS = [
     { section: "Commodities", symbol: "RIO", label: "RIO" },
     { section: "Commodities", symbol: "COPX", label: "COPX" },
     { section: "Commodities", symbol: "USO", label: "USO" },
-    { section: "Commodities", symbol: "XOM", label: "XOM" },
     { section: "Commodities", symbol: "OIH", label: "OIH" },
-    { section: "Commodities", symbol: "CVX", label: "CVX" },
+    { section: "Commodities", symbol: "PSCE", label: "PSCE" },
     { section: "Commodities", symbol: "XLE", label: "XLE" },
-    { section: "Commodities", symbol: "XLP", label: "XLP" },
     { section: "Commodities", symbol: "MPLX", label: "MPLX" },
+    { section: "Commodities", symbol: "FCG", label: "FCG" },
 ];
 
 const latestTwoClosesStmt = db.prepare(
