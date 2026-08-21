@@ -1,5 +1,8 @@
+require("dotenv").config();
+
 const express = require("express");
 const cors = require("cors");
+const crypto = require("crypto");
 const fs = require("fs");
 const path = require("path");
 const { spawn } = require("child_process");
@@ -9,8 +12,103 @@ const db = require("./db");
 const app = express();
 const PORT = process.env.PORT || 4000;
 
-app.use(cors());
+app.use(cors({ origin: true, credentials: true }));
 app.use(express.json());
+
+// ─── Auth (Home tab / Portfolio tab gate) ─────────────────────────────────
+//
+// Basic username+PIN gate backed by an in-memory session token stored in an
+// httpOnly cookie. Credentials live in .env (AUTH_USERNAME / AUTH_PIN) --
+// this app has a single user, so there's no user table. Sessions live only
+// in memory, so restarting the server logs everyone out.
+
+const AUTH_COOKIE_NAME = "auth_session";
+const SESSION_TTL_MS = 30 * 24 * 60 * 60 * 1000; // 30 days
+const sessions = new Map(); // token -> { username, expiresAt }
+
+function parseCookies(req) {
+    const header = req.headers.cookie;
+    const out = {};
+    if (!header) return out;
+    for (const part of header.split(";")) {
+        const idx = part.indexOf("=");
+        if (idx === -1) continue;
+        const key = part.slice(0, idx).trim();
+        const value = part.slice(idx + 1).trim();
+        if (key) out[key] = decodeURIComponent(value);
+    }
+    return out;
+}
+
+function safeEqual(a, b) {
+    const bufA = Buffer.from(String(a));
+    const bufB = Buffer.from(String(b));
+    if (bufA.length !== bufB.length) return false;
+    return crypto.timingSafeEqual(bufA, bufB);
+}
+
+function getSession(req) {
+    const token = parseCookies(req)[AUTH_COOKIE_NAME];
+    if (!token) return null;
+    const session = sessions.get(token);
+    if (!session) return null;
+    if (session.expiresAt < Date.now()) {
+        sessions.delete(token);
+        return null;
+    }
+    return session;
+}
+
+function requireAuth(req, res, next) {
+    const session = getSession(req);
+    if (!session) {
+        return res.status(401).json({ success: false, error: "Not authenticated" });
+    }
+    next();
+}
+
+// POST /api/auth/login  body: { username, pin }
+app.post("/api/auth/login", (req, res) => {
+    const username = String(req.body.username || "");
+    const pin = String(req.body.pin || "");
+
+    const expectedUsername = process.env.AUTH_USERNAME || "";
+    const expectedPin = process.env.AUTH_PIN || "";
+
+    if (!expectedUsername || !expectedPin) {
+        return res.status(500).json({ success: false, error: "Auth is not configured on the server (AUTH_USERNAME / AUTH_PIN missing)" });
+    }
+
+    if (!safeEqual(username, expectedUsername) || !safeEqual(pin, expectedPin)) {
+        return res.status(401).json({ success: false, error: "Invalid username or PIN" });
+    }
+
+    const token = crypto.randomBytes(24).toString("hex");
+    sessions.set(token, { username, expiresAt: Date.now() + SESSION_TTL_MS });
+
+    res.cookie(AUTH_COOKIE_NAME, token, {
+        httpOnly: true,
+        sameSite: "lax",
+        maxAge: SESSION_TTL_MS,
+        path: "/",
+    });
+    res.json({ success: true, username });
+});
+
+// POST /api/auth/logout
+app.post("/api/auth/logout", (req, res) => {
+    const token = parseCookies(req)[AUTH_COOKIE_NAME];
+    if (token) sessions.delete(token);
+    res.clearCookie(AUTH_COOKIE_NAME, { path: "/" });
+    res.json({ success: true });
+});
+
+// GET /api/auth/status
+app.get("/api/auth/status", (req, res) => {
+    const session = getSession(req);
+    if (!session) return res.json({ authenticated: false });
+    res.json({ authenticated: true, username: session.username });
+});
 
 const chartsDir = path.join(__dirname, "charts");
 if (!fs.existsSync(chartsDir)) {
@@ -740,7 +838,7 @@ const latestTwoClosesStmt = db.prepare(
 );
 
 // GET /api/market-snapshot
-app.get("/api/market-snapshot", (req, res) => {
+app.get("/api/market-snapshot", requireAuth, (req, res) => {
     try {
         const data = MARKET_SNAPSHOT_ITEMS.map(item => {
             const rows = latestTwoClosesStmt.all(item.symbol);
@@ -775,7 +873,7 @@ function currentMonthStart() {
 // necessarily all from the same month, so editing one category doesn't drop
 // the others while they wait for their own next update), plus computed % and
 // Net Worth total.
-app.get("/api/asset-allocation", (req, res) => {
+app.get("/api/asset-allocation", requireAuth, (req, res) => {
     try {
         const rows = db.prepare(`
             SELECT h.CategoryName, h.AmountUSD, h.SortOrder, h.AsOfMonth
@@ -806,7 +904,7 @@ app.get("/api/asset-allocation", (req, res) => {
 
 // PUT /api/asset-allocation/:categoryName  body: { amountUSD }
 // Upserts into the current calendar month — prior months stay untouched as history.
-app.put("/api/asset-allocation/:categoryName", (req, res) => {
+app.put("/api/asset-allocation/:categoryName", requireAuth, (req, res) => {
     try {
         const categoryName = String(req.params.categoryName || "").trim();
         const amountUSD = Number(req.body.amountUSD);
@@ -882,7 +980,7 @@ const holdingsBaseQuery = `
 `;
 
 // GET /api/portfolio/accounts
-app.get("/api/portfolio/accounts", (req, res) => {
+app.get("/api/portfolio/accounts", requireAuth, (req, res) => {
     try {
         const rows = db.prepare(
             `SELECT AccountID AS id, Name AS name FROM PortfolioAccounts ORDER BY Name`
@@ -895,7 +993,7 @@ app.get("/api/portfolio/accounts", (req, res) => {
 });
 
 // POST /api/portfolio/accounts  body: { name }
-app.post("/api/portfolio/accounts", (req, res) => {
+app.post("/api/portfolio/accounts", requireAuth, (req, res) => {
     try {
         const name = String(req.body.name || "").trim();
         if (!name) return res.status(400).json({ success: false, error: "name required" });
@@ -908,7 +1006,7 @@ app.post("/api/portfolio/accounts", (req, res) => {
 });
 
 // PATCH /api/portfolio/accounts/:id  body: { name }
-app.patch("/api/portfolio/accounts/:id", (req, res) => {
+app.patch("/api/portfolio/accounts/:id", requireAuth, (req, res) => {
     try {
         const id = Number(req.params.id);
         const name = String(req.body.name || "").trim();
@@ -923,7 +1021,7 @@ app.patch("/api/portfolio/accounts/:id", (req, res) => {
 });
 
 // DELETE /api/portfolio/accounts/:id
-app.delete("/api/portfolio/accounts/:id", (req, res) => {
+app.delete("/api/portfolio/accounts/:id", requireAuth, (req, res) => {
     try {
         const id = Number(req.params.id);
         const info = db.prepare(`DELETE FROM PortfolioAccounts WHERE AccountID = ?`).run(id);
@@ -936,7 +1034,7 @@ app.delete("/api/portfolio/accounts/:id", (req, res) => {
 });
 
 // GET /api/portfolio/holdings  — flat list across all accounts (Account is a column, not a filter)
-app.get("/api/portfolio/holdings", (req, res) => {
+app.get("/api/portfolio/holdings", requireAuth, (req, res) => {
     try {
         const rows = db.prepare(`${holdingsBaseQuery} ORDER BY c.TickerSymbol`).all();
         res.json({ success: true, data: withHoldingMetrics(rows) });
@@ -947,7 +1045,7 @@ app.get("/api/portfolio/holdings", (req, res) => {
 });
 
 // POST /api/portfolio/holdings  body: { accountId, tickerSymbol }
-app.post("/api/portfolio/holdings", (req, res) => {
+app.post("/api/portfolio/holdings", requireAuth, (req, res) => {
     try {
         const accountId = Number(req.body.accountId);
         const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
@@ -975,7 +1073,7 @@ app.post("/api/portfolio/holdings", (req, res) => {
 
 // PATCH /api/portfolio/holdings/:id
 // body: any of { allocationPct, basisPrice, currentShares, sharesToHold, holdingsCount, distributionPerYear, status, taxForm }
-app.patch("/api/portfolio/holdings/:id", (req, res) => {
+app.patch("/api/portfolio/holdings/:id", requireAuth, (req, res) => {
     try {
         const id = Number(req.params.id);
         const existing = db.prepare(`SELECT HoldingID FROM PortfolioHoldings WHERE HoldingID = ?`).get(id);
@@ -1014,7 +1112,7 @@ app.patch("/api/portfolio/holdings/:id", (req, res) => {
 });
 
 // DELETE /api/portfolio/holdings/:id
-app.delete("/api/portfolio/holdings/:id", (req, res) => {
+app.delete("/api/portfolio/holdings/:id", requireAuth, (req, res) => {
     try {
         const id = Number(req.params.id);
         const info = db.prepare(`DELETE FROM PortfolioHoldings WHERE HoldingID = ?`).run(id);
@@ -1027,7 +1125,7 @@ app.delete("/api/portfolio/holdings/:id", (req, res) => {
 });
 
 // GET /api/portfolio/transactions?accountId=&tickerSymbol=&limit=
-app.get("/api/portfolio/transactions", (req, res) => {
+app.get("/api/portfolio/transactions", requireAuth, (req, res) => {
     try {
         const clauses = [];
         const params = [];
@@ -1056,7 +1154,7 @@ app.get("/api/portfolio/transactions", (req, res) => {
 
 // POST /api/portfolio/transactions
 // body: { accountId, tickerSymbol, transactionDate, transactionType, shares?, price?, dividendAmount? }
-app.post("/api/portfolio/transactions", (req, res) => {
+app.post("/api/portfolio/transactions", requireAuth, (req, res) => {
     try {
         const accountId = Number(req.body.accountId);
         const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
@@ -1080,7 +1178,7 @@ app.post("/api/portfolio/transactions", (req, res) => {
 });
 
 // DELETE /api/portfolio/transactions/:id
-app.delete("/api/portfolio/transactions/:id", (req, res) => {
+app.delete("/api/portfolio/transactions/:id", requireAuth, (req, res) => {
     try {
         const id = Number(req.params.id);
         const info = db.prepare(`DELETE FROM PortfolioTransactions WHERE TransactionID = ?`).run(id);
@@ -1094,7 +1192,7 @@ app.delete("/api/portfolio/transactions/:id", (req, res) => {
 
 // GET /api/portfolio/performance — monthly dividend totals across all holdings,
 // for the Performance Tracker (running list + bar chart). Annual total resets each January.
-app.get("/api/portfolio/performance", (req, res) => {
+app.get("/api/portfolio/performance", requireAuth, (req, res) => {
     try {
         const rows = db.prepare(`
             SELECT strftime('%Y', TransactionDate) AS year,

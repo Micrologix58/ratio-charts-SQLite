@@ -11,6 +11,7 @@ import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi
 import { HomeMarketPanel } from "./HomeMarketPanel";
 import { AssetAllocationPanel } from "./AssetAllocationPanel";
 import { DipFinderPanel } from "./DipFinderPanel";
+import { AuthGate } from "./AuthGate";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
@@ -947,7 +948,7 @@ export default function App() {
 
             {/* Home tab */}
             {activeTab === "home" && (
-                <div style={{ flex: 1, display: "flex", minHeight: 0 }}>
+                <AuthGate>
                     <HomeMarketPanel />
                     <div style={{ flex: 1, overflow: "auto" }}>
                         <AssetAllocationPanel />
@@ -955,14 +956,18 @@ export default function App() {
                     <div style={{ flex: 1, overflow: "auto" }}>
                         <DipFinderPanel onOpenChart={handleOpenChartSymbol} />
                     </div>
-                </div>
+                </AuthGate>
             )}
 
             {/* Watchlist tab */}
             {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenChartSymbol} />}
 
             {/* Portfolio tab */}
-            {activeTab === "portfolio" && <PortfolioTab onOpenChart={handleOpenChartSymbol} />}
+            {activeTab === "portfolio" && (
+                <AuthGate>
+                    <PortfolioTab onOpenChart={handleOpenChartSymbol} />
+                </AuthGate>
+            )}
 
             {/* Watchlist sidebar — always visible */}
             <WatchlistPanel
