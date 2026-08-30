@@ -1225,6 +1225,68 @@ app.get("/api/portfolio/performance", requireAuth, (req, res) => {
     }
 });
 
+// ─── News feed (Home tab) — proxies marketdata.app's beta stock news endpoint ───
+// docs: https://www.marketdata.app/docs/api/stocks/news/
+// It's billed per call and explicitly not optimized for performance yet, so
+// results are cached per symbol to avoid re-fetching on every Home tab load.
+const NEWS_CACHE_TTL_MS = 15 * 60 * 1000;
+const newsCache = new Map(); // symbol -> { items, fetchedAt }
+
+async function fetchNewsForSymbol(symbol) {
+    const cached = newsCache.get(symbol);
+    if (cached && Date.now() - cached.fetchedAt < NEWS_CACHE_TTL_MS) {
+        return cached.items;
+    }
+
+    const apiKey = process.env.MARKETDATA_API_KEY;
+    if (!apiKey) throw new Error("MARKETDATA_API_KEY is not set");
+
+    const url = `https://api.marketdata.app/v1/stocks/news/${encodeURIComponent(symbol)}/?countback=5`;
+    const resp = await fetch(url, { headers: { Authorization: `Bearer ${apiKey}` } });
+    const json = await resp.json();
+
+    let items = [];
+    if (json.s === "ok") {
+        const headlines = json.headline || [];
+        items = headlines.map((headline, i) => ({
+            symbol: json.symbol?.[i] ?? symbol,
+            headline,
+            url: json.source?.[i] ?? null,
+            publicationDate: json.publicationDate?.[i]
+                ? new Date(json.publicationDate[i] * 1000).toISOString()
+                : null,
+        }));
+    }
+
+    newsCache.set(symbol, { items, fetchedAt: Date.now() });
+    return items;
+}
+
+// GET /api/news?symbols=AAPL,MSFT&limit=20
+app.get("/api/news", requireAuth, async (req, res) => {
+    try {
+        const symbols = String(req.query.symbols || "")
+            .split(",")
+            .map(s => s.trim().toUpperCase())
+            .filter(Boolean);
+        const limit = Math.min(Number(req.query.limit) || 20, 50);
+
+        if (symbols.length === 0) return res.json({ success: true, data: [] });
+
+        const results = await Promise.allSettled(symbols.map(fetchNewsForSymbol));
+        results.forEach((r, i) => {
+            if (r.status === "rejected") console.error(`news fetch failed for ${symbols[i]}:`, r.reason);
+        });
+        const combined = results.flatMap(r => (r.status === "fulfilled" ? r.value : []));
+        combined.sort((a, b) => (b.publicationDate ?? "").localeCompare(a.publicationDate ?? ""));
+
+        res.json({ success: true, data: combined.slice(0, limit) });
+    } catch (err) {
+        console.error("GET /api/news error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Backend listening on http://localhost:${PORT}`);
 });

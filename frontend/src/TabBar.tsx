@@ -1,10 +1,12 @@
-export type AppTab = 'home' | 'chart' | 'watchlist' | 'portfolio';
+export type AppTab = 'home' | 'chart' | 'watchlist' | 'portfolio' | 'allocation' | 'dipfinder';
 
 const TABS: { id: AppTab; label: string }[] = [
-    { id: 'home',      label: 'Home'      },
-    { id: 'portfolio', label: 'Portfolio' },
-    { id: 'watchlist', label: 'Watchlist' },
-    { id: 'chart',     label: 'Chart'     },
+    { id: 'home',       label: 'Home'       },
+    { id: 'portfolio',  label: 'Portfolio'  },
+    { id: 'allocation', label: 'Allocation' },
+    { id: 'watchlist',  label: 'Watchlist'  },
+    { id: 'dipfinder',  label: 'Dip Finder' },
+    { id: 'chart',      label: 'Chart'      },
 ];
 
 type Props = {

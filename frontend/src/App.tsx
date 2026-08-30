@@ -11,6 +11,8 @@ import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi
 import { HomeMarketPanel } from "./HomeMarketPanel";
 import { AssetAllocationPanel } from "./AssetAllocationPanel";
 import { DipFinderPanel } from "./DipFinderPanel";
+import { PortfolioNewsPanel } from "./PortfolioNewsPanel";
+import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 import { AuthGate } from "./AuthGate";
 
 type Mode = "S" | "R";
@@ -951,16 +953,13 @@ export default function App() {
                 <AuthGate>
                     <HomeMarketPanel />
                     <div style={{ flex: 1, overflow: "auto" }}>
-                        <AssetAllocationPanel />
+                        <PortfolioNewsPanel />
                     </div>
                     <div style={{ flex: 1, overflow: "auto" }}>
-                        <DipFinderPanel onOpenChart={handleOpenChartSymbol} />
+                        <WatchlistNewsPanel />
                     </div>
                 </AuthGate>
             )}
-
-            {/* Watchlist tab */}
-            {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenChartSymbol} />}
 
             {/* Portfolio tab */}
             {activeTab === "portfolio" && (
@@ -968,6 +967,21 @@ export default function App() {
                     <PortfolioTab onOpenChart={handleOpenChartSymbol} />
                 </AuthGate>
             )}
+
+            {/* Allocation tab */}
+            {activeTab === "allocation" && (
+                <AuthGate>
+                    <div style={{ flex: 1, overflow: "auto" }}>
+                        <AssetAllocationPanel />
+                    </div>
+                </AuthGate>
+            )}
+
+            {/* Watchlist tab */}
+            {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenChartSymbol} />}
+
+            {/* Dip Finder tab */}
+            {activeTab === "dipfinder" && <DipFinderPanel onOpenChart={handleOpenChartSymbol} />}
 
             {/* Watchlist sidebar — always visible */}
             <WatchlistPanel
