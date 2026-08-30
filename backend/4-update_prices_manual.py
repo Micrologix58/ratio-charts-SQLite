@@ -57,15 +57,40 @@ def fetch_prices_from_api(ticker, start_date, end_date):
     return bars
 
 
+def parse_args(argv):
+    """Plain positional/flag parsing (kept dependency-free, like the rest of this repo).
+
+    Usage: 4-update_prices_manual.py TICKER [TICKER...] [--start YYYY-MM-DD] [--end YYYY-MM-DD]
+    """
+    start_date = dt.date(2000, 1, 1)
+    end_date = dt.date.today()
+    tickers = []
+
+    i = 0
+    while i < len(argv):
+        arg = argv[i]
+        if arg in ("--start", "-s"):
+            start_date = dt.date.fromisoformat(argv[i + 1])
+            i += 2
+        elif arg in ("--end", "-e"):
+            end_date = dt.date.fromisoformat(argv[i + 1])
+            i += 2
+        else:
+            tickers.append(arg)
+            i += 1
+
+    return tickers or ["BLOX"], start_date, end_date
+
+
 def main():
-    tickers = sys.argv[1:] or ["BLOX"]
-    print(f"Updating {len(tickers)} tickers: {', '.join(tickers)}")
+    tickers, start_date, end_date = parse_args(sys.argv[1:])
+    print(f"Updating {len(tickers)} tickers from {start_date.isoformat()} to {end_date.isoformat()}: {', '.join(tickers)}")
 
     conn = db.get_connection()
     try:
         for ticker in tickers:
             try:
-                bars = fetch_prices_from_api(ticker, dt.date(2000, 1, 1), dt.date.today())
+                bars = fetch_prices_from_api(ticker, start_date, end_date)
 
                 rows = [
                     {
