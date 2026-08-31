@@ -5,6 +5,7 @@ import {
     fetchEtfRankings,
     type AssetWatchlist,
 } from "./services/assetWatchlistApi";
+import { fetchPortfolioHoldings } from "./services/portfolioApi";
 
 type DipRow = {
     tickerSymbol: string;
@@ -18,44 +19,56 @@ type Props = {
     onOpenChart?: (ticker: string) => void;
 };
 
+const PORTFOLIO_SOURCE = "portfolio" as const;
+type Source = number | typeof PORTFOLIO_SOURCE;
+
 export function DipFinderPanel({ onOpenChart }: Props) {
     const [watchlists, setWatchlists] = useState<AssetWatchlist[]>([]);
-    const [activeId, setActiveId] = useState<number | null>(null);
+    const [source, setSource] = useState<Source>(PORTFOLIO_SOURCE);
     const [rows, setRows] = useState<DipRow[] | null>(null);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
-    // Load the list of watchlists once, defaulting to the first one
+    // Load the list of watchlists once; Portfolio stays the default selection
     useEffect(() => {
         fetchAssetWatchlists()
-            .then(lists => {
-                setWatchlists(lists);
-                setActiveId(prev => prev ?? lists[0]?.id ?? null);
-            })
+            .then(lists => setWatchlists(lists))
             .catch(err => setError(err instanceof Error ? err.message : "Failed to load watchlists"));
     }, []);
 
-    // Compute dip-from-52wk-high for the active watchlist's entries
+    // Compute dip-from-52wk-high for the active watchlist's (or portfolio's) entries
     useEffect(() => {
-        if (activeId == null) { setRows(null); return; }
         let cancelled = false;
         setLoading(true);
         setError(null);
 
         Promise.all([
-            fetchAssetWatchlists(),
+            source === PORTFOLIO_SOURCE ? fetchPortfolioHoldings() : fetchAssetWatchlists(),
             fetchStockRankings(100000),
             fetchEtfRankings(100000),
-        ]).then(([lists, stockRanks, etfRanks]) => {
+        ]).then(([sourceData, stockRanks, etfRanks]) => {
             if (cancelled) return;
-            const active = lists.find(w => w.id === activeId);
-            if (!active) { setRows([]); setLoading(false); return; }
+
+            let entries: { tickerSymbol: string; companyName: string; assetType: string }[];
+            if (source === PORTFOLIO_SOURCE) {
+                const seen = new Set<string>();
+                entries = [];
+                for (const h of sourceData as Awaited<ReturnType<typeof fetchPortfolioHoldings>>) {
+                    if (seen.has(h.tickerSymbol)) continue;
+                    seen.add(h.tickerSymbol);
+                    entries.push({ tickerSymbol: h.tickerSymbol, companyName: h.companyName, assetType: h.assetType });
+                }
+            } else {
+                const active = (sourceData as AssetWatchlist[]).find(w => w.id === source);
+                if (!active) { setRows([]); setLoading(false); return; }
+                entries = active.entries;
+            }
 
             const stockMap = new Map(stockRanks.map(r => [r.TickerSymbol, r]));
             const etfMap = new Map(etfRanks.map(r => [r.TickerSymbol, r]));
 
             const computed: DipRow[] = [];
-            for (const entry of active.entries) {
+            for (const entry of entries) {
                 const r = entry.assetType.toUpperCase() === "ETF"
                     ? etfMap.get(entry.tickerSymbol)
                     : stockMap.get(entry.tickerSymbol);
@@ -83,7 +96,7 @@ export function DipFinderPanel({ onOpenChart }: Props) {
         });
 
         return () => { cancelled = true; };
-    }, [activeId]);
+    }, [source]);
 
     const maxDip = rows && rows.length > 0 ? Math.max(...rows.map(r => r.dipPct), 0.01) : 1;
 
@@ -92,13 +105,14 @@ export function DipFinderPanel({ onOpenChart }: Props) {
             <div style={{ display: "flex", alignItems: "center", justifyContent: "space-between", marginBottom: 4 }}>
                 <h3 style={{ color: "#e2e8f0", margin: 0 }}>Dip Finder</h3>
                 <select
-                    value={activeId ?? ""}
-                    onChange={e => setActiveId(Number(e.target.value))}
+                    value={source}
+                    onChange={e => setSource(e.target.value === PORTFOLIO_SOURCE ? PORTFOLIO_SOURCE : Number(e.target.value))}
                     style={{
                         background: "#1e1e1e", color: "#e2e8f0", border: "1px solid #3a3a3a",
                         borderRadius: 4, padding: "4px 8px", fontSize: 12,
                     }}
                 >
+                    <option value={PORTFOLIO_SOURCE}>Portfolio</option>
                     {watchlists.map(w => (
                         <option key={w.id} value={w.id}>{w.name}</option>
                     ))}
@@ -107,11 +121,12 @@ export function DipFinderPanel({ onOpenChart }: Props) {
             <div style={{ color: "#94a3b8", fontSize: 12, marginBottom: 12 }}>% below 52-week high</div>
 
             {error && <div style={{ color: "#ef4444", fontSize: 12 }}>{error}</div>}
-            {!error && watchlists.length === 0 && <div style={{ fontSize: 12 }}>No watchlists yet.</div>}
             {!error && loading && <div style={{ fontSize: 12 }}>Loading…</div>}
 
             {!loading && rows && rows.length === 0 && (
-                <div style={{ fontSize: 12, color: "#555" }}>No priced entries in this watchlist.</div>
+                <div style={{ fontSize: 12, color: "#555" }}>
+                    No priced entries in this {source === PORTFOLIO_SOURCE ? "portfolio" : "watchlist"}.
+                </div>
             )}
 
             {!loading && rows && rows.length > 0 && (
