@@ -10,6 +10,7 @@ import {
     type Time,
 } from "lightweight-charts";
 import type { Annotation, ChartKey } from "./types/annotations";
+import type { FractalTemplate } from "./types/fractalTemplate";
 
 type CandlePoint = {
     time: string;
@@ -31,7 +32,7 @@ type VolumePoint = {
     color: string;
 };
 
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci" | "fibextension";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci" | "fibextension" | "fractal-draw" | "fractal";
 
 type Props = {
     data: CandlePoint[] | RatioPoint[];
@@ -59,6 +60,11 @@ type Props = {
     showSma50?: boolean;
     showSma200?: boolean;
     showRsi?: boolean;
+
+    // Fractal tool: the currently-selected reusable shape template (for "fractal"
+    // placement mode) and the callback fired when a "fractal-draw" draft is finished.
+    selectedFractalTemplate?: FractalTemplate | null;
+    onFinishFractalDraft?: (points: { x: number; y: number }[]) => void;
 };
 
 type OverlayLine = {
@@ -102,6 +108,43 @@ type OverlayFib = {
     width: number;
 };
 
+type OverlayFractal = {
+    id: string;
+    // Anchor pixel positions (the original drag endpoints) — used for endpoint handles/dragging.
+    anchorX1: number;
+    anchorY1: number;
+    anchorX2: number;
+    anchorY2: number;
+    // The template's raw relative points (0..1), kept around so a live endpoint
+    // drag can re-map them into the current box without re-deriving them.
+    templatePoints: { x: number; y: number }[];
+    // templatePoints mapped into the anchor box, in pixel space.
+    pathPoints: { x: number; y: number }[];
+    color: string;
+    width: number;
+};
+
+// Maps a template's relative (0..1) points into the box spanned by two anchor
+// pixel positions. Uses min/max on each axis rather than anchor order, so the
+// shape's orientation depends only on where the anchors actually are on
+// screen — not on which one happened to be dragged first (unlike Fibonacci,
+// where anchor order is meaningful, a stamped shape shouldn't flip depending
+// on drag direction).
+// tp=(0,0) always maps exactly onto anchor 1 and tp=(1,1) always maps exactly
+// onto anchor 2 (see finishFractalDraft, which normalizes template points
+// against the first/last drawn point for exactly this reason) — so each
+// anchor handle corresponds 1:1 to a specific point of the shape and can be
+// dragged independently, rather than to an arbitrary bounding-box corner.
+function mapTemplateToBox(
+    templatePoints: { x: number; y: number }[],
+    x1: number, y1: number, x2: number, y2: number
+): { x: number; y: number }[] {
+    return templatePoints.map((tp) => ({
+        x: x1 + tp.x * (x2 - x1),
+        y: y1 + tp.y * (y2 - y1),
+    }));
+}
+
 // 0% = anchor 1's price, 100% = anchor 2's price — standard retracement levels between them.
 const FIB_RETRACEMENT_RATIOS = [0, 0.236, 0.382, 0.5, 0.618, 0.786, 1];
 // Same two anchors, but levels project past 100% — used to estimate a target beyond the move.
@@ -123,6 +166,17 @@ function toLineDash(lineStyle?: string): string | undefined {
 function toChartTime(value: string): Time {
     const [year, month, day] = value.split("-").map(Number);
     return { year, month, day } as Time;
+}
+
+function daysBetween(a: string, b: string): number {
+    const msPerDay = 86400000;
+    return Math.round((new Date(`${b}T00:00:00Z`).getTime() - new Date(`${a}T00:00:00Z`).getTime()) / msPerDay);
+}
+
+function addDays(dateStr: string, days: number): string {
+    const d = new Date(`${dateStr}T00:00:00Z`);
+    d.setUTCDate(d.getUTCDate() + days);
+    return d.toISOString().slice(0, 10);
 }
 
 /**
@@ -232,6 +286,8 @@ export function TradingViewPriceChart({
     showSma50 = false,
     showSma200 = false,
     showRsi = false,
+    selectedFractalTemplate = null,
+    onFinishFractalDraft,
 }: Props) {
 
     const useLineSeries = isRatio || isLineOnly;
@@ -277,6 +333,7 @@ export function TradingViewPriceChart({
     const [overlayLines, setOverlayLines] = useState<OverlayLine[]>([]);
     const [overlayRects, setOverlayRects] = useState<OverlayRect[]>([]);
     const [overlayFibs, setOverlayFibs] = useState<OverlayFib[]>([]);
+    const [overlayFractals, setOverlayFractals] = useState<OverlayFractal[]>([]);
     const [chartWidth, setChartWidth] = useState(0);
     const [renderKey, setRenderKey] = useState(0);
     // Inner pane dimensions — excludes price scale (right) and time axis (bottom).
@@ -286,6 +343,52 @@ export function TradingViewPriceChart({
     const [draftStart, setDraftStart] = useState<{ x: number; y: number } | null>(null);
     const [draftEnd, setDraftEnd] = useState<{ x: number; y: number } | null>(null);
     const [isDrawing, setIsDrawing] = useState(false);
+
+    // Fractal-draw draft: points plotted so far (click-to-add, not drag) and a
+    // rubber-band cursor position from the last point to the live mouse position.
+    const [draftFractalPoints, setDraftFractalPoints] = useState<{ x: number; y: number }[]>([]);
+    const [fractalDraftCursor, setFractalDraftCursor] = useState<{ x: number; y: number } | null>(null);
+
+    // Normalizes the plotted pixel points to a 0..1 relative path (using their own
+    // bounding box) and hands it off as a reusable template; no-ops below 2 points.
+    function finishFractalDraft() {
+        if (draftFractalPoints.length < 2) return;
+
+        // Normalize against the first and last drawn points specifically (not the
+        // shape's overall bounding box) so those two points always land exactly on
+        // tp=(0,0) and tp=(1,1) — that's what lets the two placement anchors each
+        // control one specific, predictable point of the shape when dragged.
+        const first = draftFractalPoints[0];
+        const last = draftFractalPoints[draftFractalPoints.length - 1];
+        const spanX = (last.x - first.x) || 1;
+        const spanY = (last.y - first.y) || 1;
+
+        const relativePoints = draftFractalPoints.map((p) => ({
+            x: (p.x - first.x) / spanX,
+            y: (p.y - first.y) / spanY,
+        }));
+
+        setDraftFractalPoints([]);
+        setFractalDraftCursor(null);
+        onFinishFractalDraft?.(relativePoints);
+    }
+
+    // Enter finishes the in-progress fractal draft, Escape cancels it — scoped to
+    // fractal-draw mode only, mirroring App's Escape-to-deselect listener.
+    useEffect(() => {
+        if (activeTool !== "fractal-draw") return;
+
+        const handleKey = (e: KeyboardEvent) => {
+            if (e.key === "Enter") {
+                finishFractalDraft();
+            } else if (e.key === "Escape") {
+                setDraftFractalPoints([]);
+                setFractalDraftCursor(null);
+            }
+        };
+        window.addEventListener("keydown", handleKey);
+        return () => window.removeEventListener("keydown", handleKey);
+    }, [activeTool, draftFractalPoints]);
 
     // Endpoint drag state — stored in a ref to avoid re-renders on every mousemove pixel.
     // dragEndpoint.current is non-null only while an endpoint drag is in progress.
@@ -385,6 +488,21 @@ export function TradingViewPriceChart({
             if (hit) return fib.id;
         }
 
+        for (let i = overlayFractals.length - 1; i >= 0; i--) {
+            const fractal = overlayFractals[i];
+
+            if (distance(x, y, fractal.anchorX1, fractal.anchorY1) <= endpointRadius) return fractal.id;
+            if (distance(x, y, fractal.anchorX2, fractal.anchorY2) <= endpointRadius) return fractal.id;
+
+            let hit = false;
+            for (let j = 0; j < fractal.pathPoints.length - 1; j++) {
+                const a = fractal.pathPoints[j];
+                const b = fractal.pathPoints[j + 1];
+                if (distancePointToSegment(x, y, a.x, a.y, b.x, b.y) <= lineTolerance) { hit = true; break; }
+            }
+            if (hit) return fractal.id;
+        }
+
         return null;
     }
 
@@ -410,6 +528,13 @@ export function TradingViewPriceChart({
         if (fib) {
             if (distance(x, y, fib.anchorX1, fib.anchorY1) <= endpointRadius) return 0;
             if (distance(x, y, fib.anchorX2, fib.anchorY2) <= endpointRadius) return 1;
+            return null;
+        }
+
+        const fractal = overlayFractals.find((f) => f.id === annotationId);
+        if (fractal) {
+            if (distance(x, y, fractal.anchorX1, fractal.anchorY1) <= endpointRadius) return 0;
+            if (distance(x, y, fractal.anchorX2, fractal.anchorY2) <= endpointRadius) return 1;
             return null;
         }
 
@@ -439,34 +564,121 @@ export function TradingViewPriceChart({
         return nearestIndex;
     }
 
+    // Projects a time value for an x pixel that falls beyond the plotted data
+    // (blank space to the right of the last bar, or left of the first) by
+    // extending the day-spacing of the two nearest real bars on that side.
+    // Returns null when x falls within the plotted range, or spacing can't be
+    // computed (fewer than 2 bars) — callers should snap to the nearest bar instead.
+    function extrapolateTime(x: number): string | null {
+        if (!chartRef.current || data.length < 2) return null;
+        const timeScale = chartRef.current.timeScale();
+
+        const lastPoint = data[data.length - 1];
+        const prevPoint = data[data.length - 2];
+        const lastX = timeScale.timeToCoordinate(toChartTime(lastPoint.time));
+        const prevX = timeScale.timeToCoordinate(toChartTime(prevPoint.time));
+
+        if (lastX != null && prevX != null && x > lastX) {
+            const barSpacingPx = lastX - prevX;
+            const barSpacingDays = daysBetween(prevPoint.time, lastPoint.time);
+            if (barSpacingPx > 0 && barSpacingDays > 0) {
+                const barsBeyond = (x - lastX) / barSpacingPx;
+                return addDays(lastPoint.time, Math.round(barsBeyond * barSpacingDays));
+            }
+        }
+
+        const firstPoint = data[0];
+        const secondPoint = data[1];
+        const firstX = timeScale.timeToCoordinate(toChartTime(firstPoint.time));
+        const secondX = timeScale.timeToCoordinate(toChartTime(secondPoint.time));
+
+        if (firstX != null && secondX != null && x < firstX) {
+            const barSpacingPx = secondX - firstX;
+            const barSpacingDays = daysBetween(firstPoint.time, secondPoint.time);
+            if (barSpacingPx > 0 && barSpacingDays > 0) {
+                const barsBefore = (firstX - x) / barSpacingPx;
+                return addDays(firstPoint.time, -Math.round(barsBefore * barSpacingDays));
+            }
+        }
+
+        return null;
+    }
+
+    // Inverse of extrapolateTime — resolves a stored annotation time back to a
+    // pixel x, projecting past the plotted range for a future/past time that
+    // doesn't match any actual bar (timeToCoordinate returns null for those).
+    function timeToPixel(time: string): number | null {
+        if (!chartRef.current || !data.length) return null;
+        const timeScale = chartRef.current.timeScale();
+
+        const direct = timeScale.timeToCoordinate(toChartTime(time));
+        if (direct != null) return direct;
+
+        const lastPoint = data[data.length - 1];
+        const prevPoint = data[data.length - 2];
+        if (prevPoint && time > lastPoint.time) {
+            const lastX = timeScale.timeToCoordinate(toChartTime(lastPoint.time));
+            const prevX = timeScale.timeToCoordinate(toChartTime(prevPoint.time));
+            const barSpacingDays = daysBetween(prevPoint.time, lastPoint.time);
+            if (lastX != null && prevX != null && barSpacingDays > 0) {
+                const barSpacingPx = lastX - prevX;
+                const daysBeyond = daysBetween(lastPoint.time, time);
+                return lastX + (daysBeyond / barSpacingDays) * barSpacingPx;
+            }
+        }
+
+        const firstPoint = data[0];
+        const secondPoint = data[1];
+        if (secondPoint && time < firstPoint.time) {
+            const firstX = timeScale.timeToCoordinate(toChartTime(firstPoint.time));
+            const secondX = timeScale.timeToCoordinate(toChartTime(secondPoint.time));
+            const barSpacingDays = daysBetween(firstPoint.time, secondPoint.time);
+            if (firstX != null && secondX != null && barSpacingDays > 0) {
+                const barSpacingPx = secondX - firstX;
+                const daysBefore = daysBetween(time, firstPoint.time);
+                return firstX - (daysBefore / barSpacingDays) * barSpacingPx;
+            }
+        }
+
+        return null;
+    }
+
     function screenToTimePrice(x: number, y: number) {
         if (!chartRef.current || !seriesRef.current || !data.length) return null;
 
         const chart = chartRef.current;
         const series = seriesRef.current;
 
-        let nearestIndex = -1;
-        let nearestDistance = Number.POSITIVE_INFINITY;
+        // Beyond the plotted range (e.g. blank space to the right of the last bar,
+        // once the user has panned to reveal it) — project forward/back instead of
+        // clamping to the nearest real bar, so anchors can be placed in the future.
+        let time = extrapolateTime(x);
 
-        data.forEach((point, index) => {
-            const px = chart.timeScale().timeToCoordinate(toChartTime(point.time));
-            if (px == null) return;
+        if (time == null) {
+            let nearestIndex = -1;
+            let nearestDistance = Number.POSITIVE_INFINITY;
 
-            const dist = Math.abs(px - x);
-            if (dist < nearestDistance) {
-                nearestDistance = dist;
-                nearestIndex = index;
-            }
-        });
+            data.forEach((point, index) => {
+                const px = chart.timeScale().timeToCoordinate(toChartTime(point.time));
+                if (px == null) return;
 
-        if (nearestIndex < 0) return null;
+                const dist = Math.abs(px - x);
+                if (dist < nearestDistance) {
+                    nearestDistance = dist;
+                    nearestIndex = index;
+                }
+            });
 
-        const point = data[nearestIndex];
-        const time = point.time;
-        // Use the true pixel-derived price rather than snapping to the nearest bar's
-        // close — only the time axis is inherently bar-indexed, the price axis is continuous.
+            if (nearestIndex < 0) return null;
+            time = data[nearestIndex].time;
+        }
+
+        // Use the true pixel-derived price rather than snapping to a bar's close —
+        // only the time axis is inherently bar-indexed, the price axis is continuous.
         const coordPrice = series.coordinateToPrice(y);
-        const price = coordPrice != null && Number.isFinite(coordPrice) ? coordPrice : getPriceAtPoint(point);
+        const price = coordPrice != null && Number.isFinite(coordPrice)
+            ? coordPrice
+            : getPriceAtPoint(data[data.length - 1]);
 
         return { time, price };
     }
@@ -498,6 +710,10 @@ export function TradingViewPriceChart({
                 borderColor: "#444444",
                 timeVisible: true,
                 secondsVisible: false,
+                // Leaves blank space to the right of the last bar by default so
+                // there's somewhere to drop an annotation anchor "in the future"
+                // without first having to scroll/pan to reveal it.
+                rightOffset: 12,
             },
             crosshair: {
                 vertLine: { color: "#758696", labelBackgroundColor: "#222" },
@@ -972,15 +1188,15 @@ export function TradingViewPriceChart({
             return;
         }
 
-        const chart = chartRef.current;
         const series = seriesRef.current;
 
         const lines: OverlayLine[] = [];
         const rects: OverlayRect[] = [];
         const fibs: OverlayFib[] = [];
+        const fractals: OverlayFractal[] = [];
 
         for (const ann of overlayDeps.annotations) {
-            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline" && ann.type !== "fibonacci" && ann.type !== "fibextension") continue;
+            if (ann.type !== "trendline" && ann.type !== "rectangle" && ann.type !== "horizontalline" && ann.type !== "fibonacci" && ann.type !== "fibextension" && ann.type !== "fractal") continue;
 
             if (ann.type === "horizontalline") {
                 const y = series.priceToCoordinate(ann.points[0].price);
@@ -1003,8 +1219,8 @@ export function TradingViewPriceChart({
 
             const [p1, p2] = ann.points;
 
-            const x1 = chart.timeScale().timeToCoordinate(toChartTime(p1.time));
-            const x2 = chart.timeScale().timeToCoordinate(toChartTime(p2.time));
+            const x1 = timeToPixel(p1.time);
+            const x2 = timeToPixel(p2.time);
             const y1 = series.priceToCoordinate(p1.price);
             const y2 = series.priceToCoordinate(p2.price);
 
@@ -1053,6 +1269,18 @@ export function TradingViewPriceChart({
                     color: ann.style?.color || "#4aa3ff",
                     width: ann.style?.lineWidth || 2,
                 });
+            } else if (ann.type === "fractal") {
+                fractals.push({
+                    id: ann.id,
+                    anchorX1: x1,
+                    anchorY1: y1,
+                    anchorX2: x2,
+                    anchorY2: y2,
+                    templatePoints: ann.templatePoints,
+                    pathPoints: mapTemplateToBox(ann.templatePoints, x1, y1, x2, y2),
+                    color: ann.style?.color || "#4aa3ff",
+                    width: ann.style?.lineWidth || 2,
+                });
             } else {
                 rects.push({
                     id: ann.id,
@@ -1070,12 +1298,17 @@ export function TradingViewPriceChart({
         setOverlayLines(lines);
         setOverlayRects(rects);
         setOverlayFibs(fibs);
+        setOverlayFractals(fractals);
     }, [overlayDeps]);
 
     useEffect(() => {
-        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension") {
+        if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension" && activeTool !== "fractal") {
             setDraftStart(null);
             setDraftEnd(null);
+        }
+        if (activeTool !== "fractal-draw") {
+            setDraftFractalPoints([]);
+            setFractalDraftCursor(null);
         }
     }, [activeTool]);
 
@@ -1166,7 +1399,7 @@ export function TradingViewPriceChart({
                     // Otherwise pass events through to the chart (pan/zoom/scroll).
                     // Individual line/circle elements have their own pointerEvents:auto
                     // so click-to-select and endpoint dragging still work in select mode.
-                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || activeTool === "fibonacci" || activeTool === "fibextension" || !!dragEndpoint.current) ? "auto" : "none",
+                    pointerEvents: (activeTool === "trendline" || activeTool === "rectangle" || activeTool === "horizontalline" || activeTool === "measure" || activeTool === "fibonacci" || activeTool === "fibextension" || activeTool === "fractal" || activeTool === "fractal-draw" || !!dragEndpoint.current) ? "auto" : "none",
                     overflow: "visible",
                     zIndex: 20,
                     cursor: dragEndpoint.current ? "crosshair" : "default",
@@ -1224,7 +1457,13 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension") return;
+                    if (activeTool === "fractal-draw") {
+                        setDraftFractalPoints((prev) => [...prev, { x, y }]);
+                        setFractalDraftCursor({ x, y });
+                        return;
+                    }
+
+                    if (activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension" && activeTool !== "fractal") return;
 
                     // Starting a new measurement drag replaces any previously-frozen one.
                     setDraftStart({ x, y });
@@ -1244,8 +1483,17 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension") || !isDrawing || !draftStart) return;
+                    if (activeTool === "fractal-draw") {
+                        if (draftFractalPoints.length > 0) setFractalDraftCursor({ x, y });
+                        return;
+                    }
+
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "measure" && activeTool !== "fibonacci" && activeTool !== "fibextension" && activeTool !== "fractal") || !isDrawing || !draftStart) return;
                     setDraftEnd({ x, y });
+                }}
+                onDoubleClick={() => {
+                    if (activeTool !== "fractal-draw") return;
+                    finishFractalDraft();
                 }}
                 onMouseUp={(e) => {
                     const rect = (e.currentTarget as SVGSVGElement).getBoundingClientRect();
@@ -1296,7 +1544,7 @@ export function TradingViewPriceChart({
                         return;
                     }
 
-                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "fibonacci" && activeTool !== "fibextension") || !isDrawing || !draftStart) return;
+                    if ((activeTool !== "trendline" && activeTool !== "rectangle" && activeTool !== "fibonacci" && activeTool !== "fibextension" && activeTool !== "fractal") || !isDrawing || !draftStart) return;
 
                     setDraftEnd({ x, y });
                     setIsDrawing(false);
@@ -1310,10 +1558,33 @@ export function TradingViewPriceChart({
                         return;
                     }
 
+                    if (activeTool === "fractal" && !selectedFractalTemplate) {
+                        setDraftStart(null);
+                        setDraftEnd(null);
+                        return;
+                    }
+
                     const now = new Date().toISOString();
 
                     const annotation: Annotation =
-                        activeTool === "rectangle"
+                        activeTool === "fractal"
+                            ? {
+                                id: `ann-${Date.now()}`,
+                                type: "fractal",
+                                chartKey,
+                                points: [p1, p2],
+                                templateId: selectedFractalTemplate!.id,
+                                templatePoints: selectedFractalTemplate!.points,
+                                style: {
+                                    color: "#4aa3ff",
+                                    lineWidth: 2,
+                                    lineStyle: "solid",
+                                },
+                                locked: false,
+                                createdAt: now,
+                                updatedAt: now,
+                            }
+                            : activeTool === "rectangle"
                             ? {
                                 id: `ann-${Date.now()}`,
                                 type: "rectangle",
@@ -1598,6 +1869,64 @@ export function TradingViewPriceChart({
                     );
                 })}
 
+                {overlayFractals.map((fractal) => {
+                    const isSelected = fractal.id === selectedAnnotationId;
+
+                    const drag = dragEndpoint.current;
+                    const isDraggingThis = drag && drag.annotationId === fractal.id;
+                    const ax1 = isDraggingThis && drag.endpoint === 0 ? drag.liveX : fractal.anchorX1;
+                    const ay1 = isDraggingThis && drag.endpoint === 0 ? drag.liveY : fractal.anchorY1;
+                    const ax2 = isDraggingThis && drag.endpoint === 1 ? drag.liveX : fractal.anchorX2;
+                    const ay2 = isDraggingThis && drag.endpoint === 1 ? drag.liveY : fractal.anchorY2;
+
+                    // Re-map the path into the live anchor box while dragging, so the whole
+                    // shape rescales in real time instead of only the dragged endpoint moving.
+                    const pathPoints = isDraggingThis
+                        ? mapTemplateToBox(fractal.templatePoints, ax1, ay1, ax2, ay2)
+                        : fractal.pathPoints;
+
+                    const polylinePoints = pathPoints.map((p) => `${p.x},${p.y}`).join(" ");
+
+                    return (
+                        <React.Fragment key={fractal.id}>
+                            {/* Invisible wide stroke for easier hit-testing */}
+                            <polyline
+                                points={polylinePoints}
+                                fill="none"
+                                stroke="transparent"
+                                strokeWidth={16}
+                                style={{ pointerEvents: "auto", cursor: "pointer" }}
+                            />
+                            <polyline
+                                points={polylinePoints}
+                                fill="none"
+                                stroke={fractal.color}
+                                strokeWidth={isSelected ? fractal.width + 1 : fractal.width}
+                                strokeLinejoin="round"
+                                strokeLinecap="round"
+                                opacity={isSelected ? 1 : 0.9}
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                                style={{ pointerEvents: "none" }}
+                            />
+                            {/* Anchor handles at the two drawn points */}
+                            <circle
+                                cx={ax1} cy={ay1} r={isSelected ? 7 : 5}
+                                fill={isDraggingThis && drag.endpoint === 0 ? "#22c55e" : fractal.color}
+                                stroke={isSelected ? "#ffffff" : "none"}
+                                strokeWidth={isSelected ? 2 : 0}
+                                style={{ pointerEvents: "auto", cursor: isSelected ? "grab" : "pointer" }}
+                            />
+                            <circle
+                                cx={ax2} cy={ay2} r={isSelected ? 7 : 5}
+                                fill={isDraggingThis && drag.endpoint === 1 ? "#22c55e" : fractal.color}
+                                stroke={isSelected ? "#ffffff" : "none"}
+                                strokeWidth={isSelected ? 2 : 0}
+                                style={{ pointerEvents: "auto", cursor: isSelected ? "grab" : "pointer" }}
+                            />
+                        </React.Fragment>
+                    );
+                })}
+
                 {/* Centered watermark — renders behind all annotation lines */}
                 {watermark && (
                     <text
@@ -1674,6 +2003,49 @@ export function TradingViewPriceChart({
                             ))}
                             <circle cx={draftStart.x} cy={draftStart.y} r={5} fill={draftColor} />
                             <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill={draftColor} />
+                        </React.Fragment>
+                    );
+                })()}
+
+                {draftStart && draftEnd && activeTool === "fractal" && selectedFractalTemplate && (() => {
+                    const mapped = mapTemplateToBox(selectedFractalTemplate.points, draftStart.x, draftStart.y, draftEnd.x, draftEnd.y);
+                    const points = mapped.map((p) => `${p.x},${p.y}`).join(" ");
+                    return (
+                        <React.Fragment>
+                            <polyline
+                                points={points}
+                                fill="none"
+                                stroke="#22c55e"
+                                strokeWidth={2}
+                                strokeDasharray="6 4"
+                                strokeLinejoin="round"
+                                strokeLinecap="round"
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                            />
+                            <circle cx={draftStart.x} cy={draftStart.y} r={5} fill="#22c55e" />
+                            <circle cx={draftEnd.x} cy={draftEnd.y} r={5} fill="#22c55e" />
+                        </React.Fragment>
+                    );
+                })()}
+
+                {draftFractalPoints.length > 0 && activeTool === "fractal-draw" && (() => {
+                    const livePoints = fractalDraftCursor ? [...draftFractalPoints, fractalDraftCursor] : draftFractalPoints;
+                    const points = livePoints.map((p) => `${p.x},${p.y}`).join(" ");
+                    return (
+                        <React.Fragment>
+                            <polyline
+                                points={points}
+                                fill="none"
+                                stroke="#f59e0b"
+                                strokeWidth={2}
+                                strokeDasharray="4 3"
+                                strokeLinejoin="round"
+                                strokeLinecap="round"
+                                clipPath={paneWidth > 0 ? "url(#annotation-clip)" : undefined}
+                            />
+                            {draftFractalPoints.map((p, i) => (
+                                <circle key={i} cx={p.x} cy={p.y} r={5} fill="#f59e0b" />
+                            ))}
                         </React.Fragment>
                     );
                 })()}

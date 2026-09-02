@@ -303,6 +303,82 @@ app.delete("/api/annotations/:id", (req, res) => {
     }
 });
 
+// Shared helper: load all fractal templates from disk
+function loadAllFractalTemplates() {
+    const file = path.join(chartsDir, "fractal-templates.json");
+    if (!fs.existsSync(file)) return [];
+    try {
+        return JSON.parse(fs.readFileSync(file, "utf8"));
+    } catch {
+        return [];
+    }
+}
+
+// Shared helper: persist all fractal templates to disk
+function saveAllFractalTemplates(templates) {
+    const file = path.join(chartsDir, "fractal-templates.json");
+    fs.writeFileSync(file, JSON.stringify(templates, null, 2), "utf8");
+}
+
+// GET /api/fractal-templates
+app.get("/api/fractal-templates", (req, res) => {
+    try {
+        const all = loadAllFractalTemplates();
+        res.json({ success: true, data: all });
+    } catch (err) {
+        console.error("GET /api/fractal-templates error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/fractal-templates  — body: { id, name, points }
+app.post("/api/fractal-templates", (req, res) => {
+    try {
+        const template = req.body;
+
+        if (!template || !template.id || !template.name || !Array.isArray(template.points)) {
+            return res.status(400).json({ success: false, error: "Invalid fractal template body" });
+        }
+
+        const all = loadAllFractalTemplates();
+
+        // Upsert: replace if id already exists, otherwise append
+        const idx = all.findIndex((t) => t.id === template.id);
+        if (idx >= 0) {
+            all[idx] = template;
+        } else {
+            all.push(template);
+        }
+
+        saveAllFractalTemplates(all);
+        console.log(`POST /api/fractal-templates — saved id=${template.id}, total=${all.length}`);
+        res.json({ success: true, data: template });
+    } catch (err) {
+        console.error("POST /api/fractal-templates error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/fractal-templates/:id
+app.delete("/api/fractal-templates/:id", (req, res) => {
+    try {
+        const id = req.params.id;
+        const all = loadAllFractalTemplates();
+        const filtered = all.filter((t) => t.id !== id);
+
+        if (filtered.length === all.length) {
+            return res.status(404).json({ success: false, error: `Fractal template ${id} not found` });
+        }
+
+        saveAllFractalTemplates(filtered);
+        console.log(`DELETE /api/fractal-templates/${id} — ${all.length - filtered.length} removed, total=${filtered.length}`);
+        res.json({ success: true });
+    } catch (err) {
+        console.error("DELETE /api/fractal-templates error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 // ─── Watchlists ─────────────────────────────────────────────────────────────
 
 const watchlistsFile = path.join(chartsDir, "watchlists.json");

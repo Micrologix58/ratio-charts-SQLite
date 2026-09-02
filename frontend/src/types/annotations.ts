@@ -1,5 +1,5 @@
-export type AnnotationTool = 'select' | 'trendline' | 'rectangle' | 'horizontalline' | 'fibonacci' | 'fibextension';
-export type AnnotationType = 'trendline' | 'rectangle' | 'horizontalline' | 'fibonacci' | 'fibextension';
+export type AnnotationTool = 'select' | 'trendline' | 'rectangle' | 'horizontalline' | 'fibonacci' | 'fibextension' | 'fractal';
+export type AnnotationType = 'trendline' | 'rectangle' | 'horizontalline' | 'fibonacci' | 'fibextension' | 'fractal';
 
 export interface ChartKey {
     mode: 'R' | 'S';
@@ -76,7 +76,20 @@ export interface FibExtensionAnnotation {
     updatedAt: string;
 }
 
-export type Annotation = TrendlineAnnotation | RectangleAnnotation | HorizontalLineAnnotation | FibonacciAnnotation | FibExtensionAnnotation;
+export interface FractalAnnotation {
+    id: string;
+    type: 'fractal';
+    chartKey: ChartKey;
+    points: [TimePricePoint, TimePricePoint]; // bounding anchors, same as Rectangle/Fibonacci
+    templateId: string;
+    templatePoints: { x: number; y: number }[]; // snapshot of the template's relative path (0..1) at placement time
+    style: AnnotationStyle;
+    locked?: boolean;
+    createdAt: string;
+    updatedAt: string;
+}
+
+export type Annotation = TrendlineAnnotation | RectangleAnnotation | HorizontalLineAnnotation | FibonacciAnnotation | FibExtensionAnnotation | FractalAnnotation;
 
 export interface AnnotationResponse {
     success: boolean;

@@ -7,6 +7,8 @@ import { PortfolioTab } from "./PortfolioTab";
 import type { WatchlistEntry } from "./services/watchlistApi";
 import { TabBar, type AppTab } from "./TabBar";
 import type { Annotation, ChartKey } from "./types/annotations";
+import type { FractalTemplate } from "./types/fractalTemplate";
+import { fetchFractalTemplates, saveFractalTemplate, deleteFractalTemplate } from "./services/fractalTemplateApi";
 import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi";
 import { HomeMarketPanel } from "./HomeMarketPanel";
 import { AssetAllocationPanel } from "./AssetAllocationPanel";
@@ -17,7 +19,7 @@ import { AuthGate } from "./AuthGate";
 
 type Mode = "S" | "R";
 type TF = "D" | "W" | "M";
-type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci" | "fibextension";
+type Tool = "select" | "trendline" | "rectangle" | "horizontalline" | "measure" | "fibonacci" | "fibextension" | "fractal-draw" | "fractal";
 
 type CandlePoint = {
     time: string;
@@ -160,6 +162,20 @@ export default function App() {
     const [annotationsError, setAnnotationsError] = useState<string | null>(null);
     const [selectedAnnotationId, setSelectedAnnotationId] = useState<string | null>(null);
     const [activeTab, setActiveTab] = useState<AppTab>("home");
+
+    const [fractalTemplates, setFractalTemplates] = useState<FractalTemplate[]>([]);
+    const [selectedFractalTemplateId, setSelectedFractalTemplateId] = useState<string | null>(null);
+    const [pendingFractalPoints, setPendingFractalPoints] = useState<{ x: number; y: number }[] | null>(null);
+    const [newFractalName, setNewFractalName] = useState("");
+
+    useEffect(() => {
+        fetchFractalTemplates()
+            .then(templates => {
+                setFractalTemplates(templates);
+                setSelectedFractalTemplateId(prev => prev ?? templates[0]?.id ?? null);
+            })
+            .catch(err => console.error("Failed to load fractal templates:", err));
+    }, []);
 
     // Company name(s) fetched from the DB for display below the toolbar
     const [companyDisplay, setCompanyDisplay] = useState<string>("");
@@ -328,6 +344,52 @@ export default function App() {
         } catch (err) {
             console.error("Failed to delete annotation:", err);
             // No rollback on delete failure — just log it
+        }
+    };
+
+    const handleFinishFractalDraft = (points: { x: number; y: number }[]) => {
+        setPendingFractalPoints(points);
+        setNewFractalName("");
+    };
+
+    const handleSaveFractalTemplate = async () => {
+        if (!pendingFractalPoints || !newFractalName.trim()) return;
+        const template: FractalTemplate = {
+            id: `fractal-${Date.now()}`,
+            name: newFractalName.trim(),
+            points: pendingFractalPoints,
+        };
+        try {
+            const saved = await saveFractalTemplate(template);
+            setFractalTemplates((prev) => [...prev, saved]);
+            setSelectedFractalTemplateId(saved.id);
+            setPendingFractalPoints(null);
+            setNewFractalName("");
+            setActiveTool("fractal");
+        } catch (err) {
+            console.error("Failed to save fractal template:", err);
+        }
+    };
+
+    const handleCancelFractalDraft = () => {
+        setPendingFractalPoints(null);
+        setNewFractalName("");
+        setActiveTool("select");
+    };
+
+    const handleDeleteFractalTemplate = async () => {
+        if (!selectedFractalTemplateId) return;
+        const template = fractalTemplates.find((t) => t.id === selectedFractalTemplateId);
+        if (!template) return;
+        if (!window.confirm(`Delete fractal template "${template.name}"? Shapes already placed on charts will be unaffected.`)) return;
+
+        const idToDelete = selectedFractalTemplateId;
+        setFractalTemplates((prev) => prev.filter((t) => t.id !== idToDelete));
+        setSelectedFractalTemplateId((prev) => (prev === idToDelete ? null : prev));
+        try {
+            await deleteFractalTemplate(idToDelete);
+        } catch (err) {
+            console.error("Failed to delete fractal template:", err);
         }
     };
 
@@ -731,6 +793,58 @@ export default function App() {
                         Fib Ext
                     </button>
                     <button
+                        onClick={() => setActiveTool("fractal-draw")}
+                        title="Click to plot points for a custom shape, double-click or Enter to finish, Esc to cancel — saves as a reusable template"
+                        style={{
+                            padding: "4px 10px",
+                            background: activeTool === "fractal-draw" ? "#555" : "#222",
+                            color: "#fff",
+                            border: "1px solid #666",
+                            cursor: "pointer",
+                        }}
+                    >
+                        Fractal
+                    </button>
+                    {fractalTemplates.length > 0 && (
+                        <>
+                            <select
+                                value={selectedFractalTemplateId ?? ""}
+                                onChange={(e) => setSelectedFractalTemplateId(e.target.value || null)}
+                                style={{
+                                    background: "#222", color: "#fff", border: "1px solid #666",
+                                    padding: "4px 6px", fontSize: 13,
+                                }}
+                            >
+                                {fractalTemplates.map((t) => (
+                                    <option key={t.id} value={t.id}>{t.name}</option>
+                                ))}
+                            </select>
+                            <button
+                                onClick={() => setActiveTool("fractal")}
+                                disabled={!selectedFractalTemplateId}
+                                title="Drag to place the selected fractal template on the chart"
+                                style={{
+                                    padding: "4px 10px",
+                                    background: activeTool === "fractal" ? "#555" : "#222",
+                                    color: "#fff",
+                                    border: "1px solid #666",
+                                    cursor: selectedFractalTemplateId ? "pointer" : "default",
+                                    opacity: selectedFractalTemplateId ? 1 : 0.4,
+                                }}
+                            >
+                                Place
+                            </button>
+                            <button
+                                onClick={handleDeleteFractalTemplate}
+                                disabled={!selectedFractalTemplateId}
+                                title="Delete the selected fractal template"
+                                style={{ padding: "4px 10px", opacity: selectedFractalTemplateId ? 1 : 0.4, cursor: selectedFractalTemplateId ? "pointer" : "default" }}
+                            >
+                                ×
+                            </button>
+                        </>
+                    )}
+                    <button
                         onClick={handleDeleteSelected}
                         disabled={!selectedAnnotationId}
                         style={{ padding: "4px 10px", opacity: selectedAnnotationId ? 1 : 0.4, cursor: selectedAnnotationId ? "pointer" : "default" }}
@@ -738,6 +852,38 @@ export default function App() {
                         Delete
                     </button>
                 </div>
+
+                {/* Inline naming prompt for a just-finished fractal-draw draft */}
+                {pendingFractalPoints && (
+                    <div style={{ display: "flex", alignItems: "center", gap: 6, marginBottom: 4 }}>
+                        <span style={{ color: "#ccc", fontSize: 13 }}>Save as:</span>
+                        <input
+                            autoFocus
+                            type="text"
+                            value={newFractalName}
+                            onChange={(e) => setNewFractalName(e.target.value)}
+                            onKeyDown={(e) => {
+                                if (e.key === "Enter") handleSaveFractalTemplate();
+                                if (e.key === "Escape") handleCancelFractalDraft();
+                            }}
+                            placeholder="Fractal name"
+                            style={{
+                                background: "#1e1e1e", color: "#fff", border: "1px solid #666",
+                                padding: "4px 8px", fontSize: 13,
+                            }}
+                        />
+                        <button
+                            onClick={handleSaveFractalTemplate}
+                            disabled={!newFractalName.trim()}
+                            style={{ padding: "4px 10px", opacity: newFractalName.trim() ? 1 : 0.4, cursor: newFractalName.trim() ? "pointer" : "default" }}
+                        >
+                            Save
+                        </button>
+                        <button onClick={handleCancelFractalDraft} style={{ padding: "4px 10px", cursor: "pointer" }}>
+                            Cancel
+                        </button>
+                    </div>
+                )}
 
                 {/* Style toolbar — only visible when an annotation is selected */}
                 {selectedAnnotationId && (() => {
@@ -905,6 +1051,8 @@ export default function App() {
                                     showSma50={showSma50}
                                     showSma200={showSma200}
                                     showRsi={showRsi}
+                                    selectedFractalTemplate={fractalTemplates.find((t) => t.id === selectedFractalTemplateId) ?? null}
+                                    onFinishFractalDraft={handleFinishFractalDraft}
                                 />
                             </ChartErrorBoundary>
                         </div>
