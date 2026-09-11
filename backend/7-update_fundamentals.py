@@ -18,7 +18,7 @@ REQUEST_TIMEOUT = int(os.getenv("REQUEST_TIMEOUT", "30"))
 MAX_RETRIES = int(os.getenv("MAX_RETRIES", "4"))
 REQUEST_DELAY_SECONDS = float(os.getenv("FUNDAMENTALS_REQUEST_DELAY_SECONDS", "1.1"))
 
-METRIC_NAMES = ("MarketCapUSD", "EPS_TTM", "PE_Ratio", "52WeekHigh", "52WeekLow")
+METRIC_NAMES = ("MarketCapUSD", "EPS_TTM", "PE_Ratio", "52WeekHigh", "52WeekLow", "SharesOutstanding", "PB_Ratio")
 
 
 def setup_logging():
@@ -119,7 +119,8 @@ def fetch_ttm_eps(session, ticker, as_of_date):
     return sum(reported[-4:])
 
 
-def fetch_market_cap_usd(session, ticker):
+def fetch_finnhub_profile(session, ticker):
+    """Returns {"marketCapUSD": float|None, "sharesOutstanding": float|None} or None."""
     if not FINNHUB_API_KEY:
         return None
     url = f"{FINNHUB_BASE_URL}/stock/profile2"
@@ -128,9 +129,23 @@ def fetch_market_cap_usd(session, ticker):
         return None
     data = resp.json() or {}
     cap_millions = data.get("marketCapitalization")
-    if not cap_millions:
+    shares_millions = data.get("shareOutstanding")
+    return {
+        "marketCapUSD": float(cap_millions) * 1_000_000 if cap_millions else None,
+        "sharesOutstanding": float(shares_millions) * 1_000_000 if shares_millions else None,
+    }
+
+
+def fetch_pb_ratio(session, ticker):
+    if not FINNHUB_API_KEY:
         return None
-    return float(cap_millions) * 1_000_000
+    url = f"{FINNHUB_BASE_URL}/stock/metric"
+    resp = session.get(url, params={"symbol": ticker, "metric": "all", "token": FINNHUB_API_KEY}, timeout=REQUEST_TIMEOUT)
+    if resp.status_code != 200:
+        return None
+    data = resp.json() or {}
+    pb = (data.get("metric") or {}).get("pb")
+    return float(pb) if pb is not None else None
 
 
 def collect_metrics(session, ticker, as_of_date):
@@ -158,11 +173,21 @@ def collect_metrics(session, ticker, as_of_date):
         logger.exception("%s: earnings fetch failed", ticker)
 
     try:
-        market_cap = fetch_market_cap_usd(session, ticker)
-        if market_cap is not None:
-            metrics.append(("MarketCapUSD", market_cap, "finnhub"))
+        profile = fetch_finnhub_profile(session, ticker)
+        if profile:
+            if profile["marketCapUSD"] is not None:
+                metrics.append(("MarketCapUSD", profile["marketCapUSD"], "finnhub"))
+            if profile["sharesOutstanding"] is not None:
+                metrics.append(("SharesOutstanding", profile["sharesOutstanding"], "finnhub"))
     except Exception:
-        logger.exception("%s: market cap fetch failed", ticker)
+        logger.exception("%s: finnhub profile fetch failed", ticker)
+
+    try:
+        pb_ratio = fetch_pb_ratio(session, ticker)
+        if pb_ratio is not None:
+            metrics.append(("PB_Ratio", pb_ratio, "finnhub"))
+    except Exception:
+        logger.exception("%s: P/B fetch failed", ticker)
 
     return metrics
 

@@ -1363,6 +1363,237 @@ app.get("/api/news", requireAuth, async (req, res) => {
     }
 });
 
+// ─── Fundamentals tab (single-ticker research worksheet) — see sql/006_company_research.sql ───
+
+const fundamentalsPageMetricsStmt = db.prepare(`
+    SELECT MetricName, MetricValue
+    FROM FundamentalMetrics
+    WHERE TickerSymbol = ?
+      AND MetricName IN ('EPS_TTM', 'PE_Ratio', 'PB_Ratio', 'MarketCapUSD', 'SharesOutstanding', '52WeekHigh', '52WeekLow')
+      AND MetricDate = (
+          SELECT MAX(MetricDate) FROM FundamentalMetrics f2
+          WHERE f2.TickerSymbol = FundamentalMetrics.TickerSymbol AND f2.MetricName = FundamentalMetrics.MetricName
+      )
+`);
+
+const fundamentalsPageLatestPriceStmt = db.prepare(
+    `SELECT ClosePrice FROM PriceHistory WHERE TickerSymbol = ? ORDER BY PriceDate DESC LIMIT 1`
+);
+
+const fundamentalsPageDividendYieldStmt = db.prepare(
+    `SELECT DividendYieldPct FROM AssetRankings WHERE TickerSymbol = ? ORDER BY AsOfDate DESC LIMIT 1`
+);
+
+const fundamentalsPageResearchStmt = db.prepare(`SELECT * FROM CompanyResearch WHERE TickerSymbol = ?`);
+
+const fundamentalsPageHistoricalStmt = db.prepare(
+    `SELECT FiscalYear, SharesOutstanding, PERatio, PBRatio, EPS FROM CompanyHistoricalFinancials WHERE TickerSymbol = ? ORDER BY FiscalYear ASC`
+);
+
+// GET /api/fundamentals-page/:symbol
+app.get("/api/fundamentals-page/:symbol", (req, res) => {
+    try {
+        const symbol = String(req.params.symbol || "").toUpperCase().trim();
+        if (!symbol) return res.status(400).json({ success: false, error: "symbol is required" });
+
+        const company = db.prepare(`SELECT TickerSymbol, CompanyName FROM Companies WHERE TickerSymbol = ?`).get(symbol);
+        if (!company) return res.status(404).json({ success: false, error: `Company not found: ${symbol}` });
+
+        const byName = {};
+        for (const row of fundamentalsPageMetricsStmt.all(symbol)) {
+            byName[row.MetricName] = row.MetricValue;
+        }
+        const priceRow = fundamentalsPageLatestPriceStmt.get(symbol);
+        const dividendRow = fundamentalsPageDividendYieldStmt.get(symbol);
+
+        const research = fundamentalsPageResearchStmt.get(symbol) || null;
+        const historical = fundamentalsPageHistoricalStmt.all(symbol);
+
+        res.json({
+            success: true,
+            data: {
+                tickerSymbol: symbol,
+                companyName: company.CompanyName,
+                summary: {
+                    price: priceRow?.ClosePrice ?? null,
+                    epsTTM: byName.EPS_TTM ?? null,
+                    dividendYieldPct: dividendRow?.DividendYieldPct ?? null,
+                    peRatio: byName.PE_Ratio ?? null,
+                    pbRatio: byName.PB_Ratio ?? null,
+                    marketCapUSD: byName.MarketCapUSD ?? null,
+                    sharesOutstanding: byName.SharesOutstanding ?? null,
+                    week52High: byName["52WeekHigh"] ?? null,
+                    week52Low: byName["52WeekLow"] ?? null,
+                },
+                research: research ? {
+                    recommendation: research.Recommendation,
+                    score: research.Score,
+                    debt: research.Debt,
+                    netDebt: research.NetDebt,
+                    productionCost: research.ProductionCost,
+                    oneP: research.OneP,
+                    twoP: research.TwoP,
+                    boepd2025: research.Boepd2025,
+                    prodLightPct: research.ProdLightPct,
+                    prodMedHeavyPct: research.ProdMedHeavyPct,
+                    prodNGLsPct: research.ProdNGLsPct,
+                    prodGasPct: research.ProdGasPct,
+                    growth60: research.Growth60,
+                    growth70: research.Growth70,
+                    growth80: research.Growth80,
+                    growth90: research.Growth90,
+                    growth100: research.Growth100,
+                    entryPriceBase: research.EntryPriceBase,
+                    entryPriceBull: research.EntryPriceBull,
+                    entryPriceBagger: research.EntryPriceBagger,
+                    executiveSummary: research.ExecutiveSummary,
+                } : null,
+                historical: historical.map(h => ({
+                    fiscalYear: h.FiscalYear,
+                    sharesOutstanding: h.SharesOutstanding,
+                    peRatio: h.PERatio,
+                    pbRatio: h.PBRatio,
+                    eps: h.EPS,
+                })),
+            },
+        });
+    } catch (err) {
+        console.error("GET /api/fundamentals-page/:symbol error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PUT /api/fundamentals-page/:symbol/research  body: research fields (all optional)
+app.put("/api/fundamentals-page/:symbol/research", (req, res) => {
+    try {
+        const symbol = String(req.params.symbol || "").toUpperCase().trim();
+        if (!symbol) return res.status(400).json({ success: false, error: "symbol is required" });
+
+        const company = db.prepare(`SELECT TickerSymbol FROM Companies WHERE TickerSymbol = ?`).get(symbol);
+        if (!company) return res.status(404).json({ success: false, error: `Company not found: ${symbol}` });
+
+        const b = req.body || {};
+        const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
+        const str = (v) => (v === "" || v === null || v === undefined ? null : String(v));
+
+        if (b.recommendation && !["Buy", "Hold", "Sell"].includes(b.recommendation)) {
+            return res.status(400).json({ success: false, error: "recommendation must be Buy, Hold, or Sell" });
+        }
+
+        db.prepare(`
+            INSERT INTO CompanyResearch (
+                TickerSymbol, Recommendation, Score, Debt, NetDebt, ProductionCost, OneP, TwoP, Boepd2025,
+                ProdLightPct, ProdMedHeavyPct, ProdNGLsPct, ProdGasPct,
+                Growth60, Growth70, Growth80, Growth90, Growth100,
+                EntryPriceBase, EntryPriceBull, EntryPriceBagger, ExecutiveSummary, UpdatedAt
+            ) VALUES (
+                @tickerSymbol, @recommendation, @score, @debt, @netDebt, @productionCost, @oneP, @twoP, @boepd2025,
+                @prodLightPct, @prodMedHeavyPct, @prodNGLsPct, @prodGasPct,
+                @growth60, @growth70, @growth80, @growth90, @growth100,
+                @entryPriceBase, @entryPriceBull, @entryPriceBagger, @executiveSummary, CURRENT_TIMESTAMP
+            )
+            ON CONFLICT(TickerSymbol) DO UPDATE SET
+                Recommendation = excluded.Recommendation,
+                Score = excluded.Score,
+                Debt = excluded.Debt,
+                NetDebt = excluded.NetDebt,
+                ProductionCost = excluded.ProductionCost,
+                OneP = excluded.OneP,
+                TwoP = excluded.TwoP,
+                Boepd2025 = excluded.Boepd2025,
+                ProdLightPct = excluded.ProdLightPct,
+                ProdMedHeavyPct = excluded.ProdMedHeavyPct,
+                ProdNGLsPct = excluded.ProdNGLsPct,
+                ProdGasPct = excluded.ProdGasPct,
+                Growth60 = excluded.Growth60,
+                Growth70 = excluded.Growth70,
+                Growth80 = excluded.Growth80,
+                Growth90 = excluded.Growth90,
+                Growth100 = excluded.Growth100,
+                EntryPriceBase = excluded.EntryPriceBase,
+                EntryPriceBull = excluded.EntryPriceBull,
+                EntryPriceBagger = excluded.EntryPriceBagger,
+                ExecutiveSummary = excluded.ExecutiveSummary,
+                UpdatedAt = CURRENT_TIMESTAMP
+        `).run({
+            tickerSymbol: symbol,
+            recommendation: str(b.recommendation),
+            score: num(b.score),
+            debt: num(b.debt),
+            netDebt: num(b.netDebt),
+            productionCost: num(b.productionCost),
+            oneP: num(b.oneP),
+            twoP: num(b.twoP),
+            boepd2025: num(b.boepd2025),
+            prodLightPct: num(b.prodLightPct),
+            prodMedHeavyPct: num(b.prodMedHeavyPct),
+            prodNGLsPct: num(b.prodNGLsPct),
+            prodGasPct: num(b.prodGasPct),
+            growth60: str(b.growth60),
+            growth70: str(b.growth70),
+            growth80: str(b.growth80),
+            growth90: str(b.growth90),
+            growth100: str(b.growth100),
+            entryPriceBase: num(b.entryPriceBase),
+            entryPriceBull: num(b.entryPriceBull),
+            entryPriceBagger: num(b.entryPriceBagger),
+            executiveSummary: str(b.executiveSummary),
+        });
+
+        res.json({ success: true, data: { tickerSymbol: symbol } });
+    } catch (err) {
+        console.error("PUT /api/fundamentals-page/:symbol/research error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PUT /api/fundamentals-page/:symbol/historical  body: { years: [{ fiscalYear, sharesOutstanding, peRatio, pbRatio }, ...] }
+app.put("/api/fundamentals-page/:symbol/historical", (req, res) => {
+    try {
+        const symbol = String(req.params.symbol || "").toUpperCase().trim();
+        if (!symbol) return res.status(400).json({ success: false, error: "symbol is required" });
+
+        const company = db.prepare(`SELECT TickerSymbol FROM Companies WHERE TickerSymbol = ?`).get(symbol);
+        if (!company) return res.status(404).json({ success: false, error: `Company not found: ${symbol}` });
+
+        const years = Array.isArray(req.body?.years) ? req.body.years : [];
+        const num = (v) => (v === "" || v === null || v === undefined ? null : Number(v));
+
+        const upsert = db.prepare(`
+            INSERT INTO CompanyHistoricalFinancials (TickerSymbol, FiscalYear, SharesOutstanding, PERatio, PBRatio, EPS, UpdatedAt)
+            VALUES (@tickerSymbol, @fiscalYear, @sharesOutstanding, @peRatio, @pbRatio, @eps, CURRENT_TIMESTAMP)
+            ON CONFLICT(TickerSymbol, FiscalYear) DO UPDATE SET
+                SharesOutstanding = excluded.SharesOutstanding,
+                PERatio = excluded.PERatio,
+                PBRatio = excluded.PBRatio,
+                EPS = excluded.EPS,
+                UpdatedAt = CURRENT_TIMESTAMP
+        `);
+
+        const runAll = db.transaction((rows) => {
+            for (const row of rows) {
+                if (!row.fiscalYear) continue;
+                upsert.run({
+                    tickerSymbol: symbol,
+                    fiscalYear: Number(row.fiscalYear),
+                    sharesOutstanding: num(row.sharesOutstanding),
+                    peRatio: num(row.peRatio),
+                    pbRatio: num(row.pbRatio),
+                    eps: num(row.eps),
+                });
+            }
+        });
+        runAll(years);
+
+        res.json({ success: true, data: fundamentalsPageHistoricalStmt.all(symbol).map(h => ({
+            fiscalYear: h.FiscalYear, sharesOutstanding: h.SharesOutstanding, peRatio: h.PERatio, pbRatio: h.PBRatio, eps: h.EPS,
+        })) });
+    } catch (err) {
+        console.error("PUT /api/fundamentals-page/:symbol/historical error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
 app.listen(PORT, () => {
     console.log(`Backend listening on http://localhost:${PORT}`);
 });

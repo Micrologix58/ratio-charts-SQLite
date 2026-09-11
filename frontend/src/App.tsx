@@ -13,6 +13,7 @@ import { fetchFundamentals, type Fundamentals } from "./services/fundamentalsApi
 import { HomeMarketPanel } from "./HomeMarketPanel";
 import { AssetAllocationPanel } from "./AssetAllocationPanel";
 import { DipFinderPanel } from "./DipFinderPanel";
+import { FundamentalsTab } from "./FundamentalsTab";
 import { PortfolioNewsPanel } from "./PortfolioNewsPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 import { AuthGate } from "./AuthGate";
@@ -524,6 +525,13 @@ export default function App() {
         setSymbol(ticker);
         setInputValue(ticker);
         setActiveTab("chart");
+    }
+
+    function handleOpenFundamentals(ticker: string) {
+        setMode("S");
+        setSymbol(ticker);
+        setInputValue(ticker);
+        setActiveTab("fundamentals");
     }
 
     return (
@@ -1125,8 +1133,13 @@ export default function App() {
                 </AuthGate>
             )}
 
+            {/* Fundamentals tab */}
+            {activeTab === "fundamentals" && (
+                <FundamentalsTab initialSymbol={symbol} onOpenChart={handleOpenChartSymbol} />
+            )}
+
             {/* Watchlist tab */}
-            {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenChartSymbol} />}
+            {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenFundamentals} />}
 
             {/* Dip Finder tab */}
             {activeTab === "dipfinder" && <DipFinderPanel onOpenChart={handleOpenChartSymbol} />}

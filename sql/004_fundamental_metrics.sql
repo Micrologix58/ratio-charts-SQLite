@@ -3,9 +3,10 @@
 -- without another migration -- one row per (ticker, date, metric name).
 --
 -- Populated by 7-update_fundamentals.py:
---   - 52WeekHigh / 52WeekLow  <- marketdata.app quotes endpoint
---   - EPS_TTM / PE_Ratio      <- marketdata.app earnings endpoint (trailing 4 reported quarters)
---   - MarketCapUSD            <- finnhub.io (marketdata.app has no market cap / shares outstanding data)
+--   - 52WeekHigh / 52WeekLow           <- marketdata.app quotes endpoint
+--   - EPS_TTM / PE_Ratio               <- marketdata.app earnings endpoint (trailing 4 reported quarters)
+--   - MarketCapUSD / SharesOutstanding <- finnhub.io stock/profile2 (marketdata.app has neither)
+--   - PB_Ratio                         <- finnhub.io stock/metric (trailing P/B)
 PRAGMA foreign_keys = ON;
 
 CREATE TABLE FundamentalMetrics (
