@@ -105,6 +105,7 @@ function AssetSearch({
 export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange, onOpenRanking, onOpenChart, refreshToken, onWatchlistDataChanged }: Props) {
     const [watchlists, setWatchlists] = useState<AssetWatchlist[]>([]);
     const [addMode, setAddMode] = useState<'stock' | 'ETF' | 'MutualFund' | null>(null);
+    const [addError, setAddError] = useState<string | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -142,9 +143,14 @@ export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange
     async function handleAddAsset(symbol: string) {
         if (!activeWatchlistId) return;
         setAddMode(null);
-        const updated = await addAssetEntry(activeWatchlistId, symbol);
-        setWatchlists(prev => prev.map(w => w.id === activeWatchlistId ? updated : w));
-        onWatchlistDataChanged?.();
+        setAddError(null);
+        try {
+            const updated = await addAssetEntry(activeWatchlistId, symbol);
+            setWatchlists(prev => prev.map(w => w.id === activeWatchlistId ? updated : w));
+            onWatchlistDataChanged?.();
+        } catch (err) {
+            setAddError(err instanceof Error ? err.message : `Failed to add ${symbol}`);
+        }
     }
 
     async function handleRemoveEntry(symbol: string) {
@@ -291,27 +297,31 @@ export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange
             <div style={{ borderTop: '1px solid #2a2a2a', padding: '6px 8px', position: 'relative' }} ref={dropdownRef}>
                 <div style={{ display: 'flex', gap: 4, marginBottom: 4 }}>
                     <button
-                        onClick={() => setAddMode(m => m === 'stock' ? null : 'stock')}
+                        onClick={() => { setAddError(null); setAddMode(m => m === 'stock' ? null : 'stock'); }}
                         disabled={!activeWatchlistId}
                         style={{ ...btnStyle, flex: 1, fontSize: 12 }}
                     >
                         + Stock
                     </button>
                     <button
-                        onClick={() => setAddMode(m => m === 'ETF' ? null : 'ETF')}
+                        onClick={() => { setAddError(null); setAddMode(m => m === 'ETF' ? null : 'ETF'); }}
                         disabled={!activeWatchlistId}
                         style={{ ...btnStyle, flex: 1, fontSize: 12, color: '#a78bfa' }}
                     >
                         + ETF
                     </button>
                     <button
-                        onClick={() => setAddMode(m => m === 'MutualFund' ? null : 'MutualFund')}
+                        onClick={() => { setAddError(null); setAddMode(m => m === 'MutualFund' ? null : 'MutualFund'); }}
                         disabled={!activeWatchlistId}
                         style={{ ...btnStyle, flex: 1, fontSize: 12, color: '#f59e0b' }}
                     >
                         + Fund
                     </button>
                 </div>
+
+                {addError && (
+                    <div style={{ color: '#ef4444', fontSize: 11, marginBottom: 4 }}>{addError}</div>
+                )}
                 <div style={{ display: 'flex', gap: 4 }}>
                     <button onClick={() => onOpenRanking('stock')} title="Top 200 Stocks" style={{ ...btnStyle, flex: 1, fontSize: 12 }}>
                         +S List

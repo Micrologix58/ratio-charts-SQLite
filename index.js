@@ -687,8 +687,8 @@ app.post("/api/asset-watchlists/:id/entries", (req, res) => {
         if (!wl) return res.status(404).json({ success: false, error: "watchlist not found" });
 
         const company = db.prepare(`SELECT TickerSymbol, AssetType FROM Companies WHERE TickerSymbol = ?`).get(ticker);
-        if (!company || !["STOCK", "ETF"].includes(String(company.AssetType).toUpperCase())) {
-            return res.status(400).json({ success: false, error: `${ticker} is not a known stock/ETF in Companies` });
+        if (!company || !["STOCK", "ETF", "MUTUALFUND"].includes(String(company.AssetType).toUpperCase())) {
+            return res.status(400).json({ success: false, error: `${ticker} is not a known stock/ETF/mutual fund in Companies` });
         }
 
         db.prepare(`INSERT OR IGNORE INTO AssetWatchlistEntries (WatchlistID, TickerSymbol) VALUES (?, ?)`).run(id, ticker);
@@ -1131,8 +1131,8 @@ app.post("/api/portfolio/holdings", requireAuth, (req, res) => {
         if (!account) return res.status(404).json({ success: false, error: "account not found" });
 
         const company = db.prepare(`SELECT TickerSymbol, AssetType FROM Companies WHERE TickerSymbol = ?`).get(ticker);
-        if (!company || !["STOCK", "ETF"].includes(String(company.AssetType).toUpperCase())) {
-            return res.status(400).json({ success: false, error: `${ticker} is not a known stock/ETF in Companies` });
+        if (!company || !["STOCK", "ETF", "MUTUALFUND"].includes(String(company.AssetType).toUpperCase())) {
+            return res.status(400).json({ success: false, error: `${ticker} is not a known stock/ETF/mutual fund in Companies` });
         }
 
         const info = db.prepare(`INSERT INTO PortfolioHoldings (AccountID, TickerSymbol) VALUES (?, ?)`).run(accountId, ticker);
