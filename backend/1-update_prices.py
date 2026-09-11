@@ -77,6 +77,20 @@ def load_tickers(path=TICKERS_FILE):
     return tickers
 
 
+def get_asset_types(conn, tickers):
+    """Ticker -> uppercased AssetType, for routing to the right marketdata.app
+    candles endpoint (mutual funds use /v1/funds/, everything else /v1/stocks/)."""
+    if not tickers:
+        return {}
+    placeholders = ",".join("?" for _ in tickers)
+    cur = conn.cursor()
+    cur.execute(
+        f"SELECT TickerSymbol, UPPER(AssetType) FROM Companies WHERE TickerSymbol IN ({placeholders})",
+        tickers,
+    )
+    return dict(cur.fetchall())
+
+
 def get_last_date(conn, ticker):
     cur = conn.cursor()
     cur.execute(
@@ -109,9 +123,10 @@ def build_headers():
     return {"Authorization": f"Bearer {API_KEY}"}
 
 
-def fetch_prices_from_api(ticker, start_date, end_date):
+def fetch_prices_from_api(ticker, start_date, end_date, asset_type=None):
     headers = build_headers()
-    url = f"{API_BASE_URL}/v1/stocks/candles/D/{ticker}"
+    segment = "funds" if asset_type == "MUTUALFUND" else "stocks"
+    url = f"{API_BASE_URL}/v1/{segment}/candles/D/{ticker}"
     params = {
         "from": start_date.isoformat(),
         "to": end_date.isoformat(),
@@ -165,13 +180,15 @@ def fetch_prices_from_api(ticker, start_date, end_date):
         v_arr = data.get("v") or []
         vw_arr = data.get("vw") or data.get("vwap") or []
 
-        n = min(len(t_arr), len(o_arr), len(h_arr), len(l_arr), len(c_arr), len(v_arr))
+        # Mutual fund candles (funds/candles/D) carry no "v" (volume) key at all --
+        # don't let its absence zero out n for every other array.
+        n = min(len(t_arr), len(o_arr), len(h_arr), len(l_arr), len(c_arr))
         bars = []
 
         for i in range(n):
             ts = t_arr[i]
             price_date = dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).date()
-            volume_val = v_arr[i]
+            volume_val = v_arr[i] if i < len(v_arr) else None
             vwap_val = vw_arr[i] if i < len(vw_arr) else None
 
             bars.append(
@@ -223,21 +240,22 @@ def insert_prices(conn, ticker, bars):
     return db.upsert_price_history(conn, rows)
 
 
-def process_ticker(conn, ticker):
+def process_ticker(conn, ticker, asset_type=None):
     last_date = get_last_date(conn, ticker)
     start_date, end_date, gap_days, effective_overlap = get_fetch_window(last_date)
 
     logger.info(
-        "%s: last_date=%s start=%s end=%s gap_days=%s overlap=%s",
+        "%s: last_date=%s start=%s end=%s gap_days=%s overlap=%s asset_type=%s",
         ticker,
         last_date,
         start_date,
         end_date,
         gap_days,
         effective_overlap,
+        asset_type,
     )
 
-    bars, headers = fetch_prices_from_api(ticker, start_date, end_date)
+    bars, headers = fetch_prices_from_api(ticker, start_date, end_date, asset_type)
 
     if not bars:
         logger.info("%s: no bars returned for requested window", ticker)
@@ -286,13 +304,14 @@ def main():
 
     conn = db.get_connection()
     try:
+        asset_types = get_asset_types(conn, tickers)
         batches = list(batched(tickers, BATCH_SIZE))
         for batch_index, batch in enumerate(batches, start=1):
             logger.info("Processing batch %s/%s: %s", batch_index, len(batches), ", ".join(batch))
 
             for ticker in batch:
                 try:
-                    process_ticker(conn, ticker)
+                    process_ticker(conn, ticker, asset_types.get(ticker))
                 except requests.HTTPError as e:
                     status = e.response.status_code if getattr(e, "response", None) is not None else "?"
                     logger.exception("%s: HTTP error %s", ticker, status)

@@ -715,12 +715,12 @@ app.delete("/api/asset-watchlists/:id/entries/:tickerSymbol", (req, res) => {
     }
 });
 
-// GET /api/asset-universe?assetType=stock|ETF  — ticker search source for + Stock / + ETF
+// GET /api/asset-universe?assetType=stock|ETF|MutualFund  — ticker search source for + Stock / + ETF / + Mutual Fund
 app.get("/api/asset-universe", (req, res) => {
     try {
         const assetType = String(req.query.assetType || "").toUpperCase();
-        if (!["STOCK", "ETF"].includes(assetType)) {
-            return res.status(400).json({ success: false, error: "assetType must be stock or ETF" });
+        if (!["STOCK", "ETF", "MUTUALFUND"].includes(assetType)) {
+            return res.status(400).json({ success: false, error: "assetType must be stock, ETF, or MutualFund" });
         }
         const rows = db.prepare(
             `SELECT TickerSymbol, CompanyName, AssetType FROM Companies WHERE UPPER(AssetType) = ? ORDER BY TickerSymbol`
@@ -820,8 +820,8 @@ app.post("/api/companies/onboard", (req, res) => {
         const assetType = String(req.body.assetType || "").trim();
         const { databaseCategory, industryClassification, exchangeListed, websiteURL } = req.body;
 
-        if (!ticker || !name || !["STOCK", "ETF"].includes(assetType.toUpperCase())) {
-            return res.status(400).json({ success: false, error: "tickerSymbol, companyName, and assetType (Stock/ETF) are required" });
+        if (!ticker || !name || !["STOCK", "ETF", "MUTUALFUND"].includes(assetType.toUpperCase())) {
+            return res.status(400).json({ success: false, error: "tickerSymbol, companyName, and assetType (Stock/ETF/MutualFund) are required" });
         }
 
         const existing = db.prepare(`SELECT TickerSymbol FROM Companies WHERE TickerSymbol = ?`).get(ticker);

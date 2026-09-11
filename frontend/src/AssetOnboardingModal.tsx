@@ -46,7 +46,7 @@ export function AssetOnboardingModal({ onClose, onOnboarded, editTicker }: Props
 
     const [tickerSymbol, setTickerSymbol] = useState(editTicker ?? '');
     const [companyName, setCompanyName] = useState('');
-    const [assetType, setAssetType] = useState<'Stock' | 'ETF'>('Stock');
+    const [assetType, setAssetType] = useState<'Stock' | 'ETF' | 'MutualFund'>('Stock');
     const [databaseCategory, setDatabaseCategory] = useState('');
     const [industryClassification, setIndustryClassification] = useState('');
     const [exchangeListed, setExchangeListed] = useState('');
@@ -68,7 +68,10 @@ export function AssetOnboardingModal({ onClose, onOnboarded, editTicker }: Props
         fetchCompanyDetail(editTicker).then(detail => {
             if (cancelled) return;
             setCompanyName(detail.companyName);
-            setAssetType(detail.assetType?.toUpperCase() === 'ETF' ? 'ETF' : 'Stock');
+            setAssetType(
+                detail.assetType?.toUpperCase() === 'ETF' ? 'ETF' :
+                detail.assetType?.toUpperCase() === 'MUTUALFUND' ? 'MutualFund' : 'Stock'
+            );
             setDatabaseCategory(detail.sector ?? '');
             setIndustryClassification(detail.industry ?? '');
             setExchangeListed(detail.exchangeListed ?? '');
@@ -186,9 +189,10 @@ export function AssetOnboardingModal({ onClose, onOnboarded, editTicker }: Props
                         <input style={inputStyle} value={companyName} onChange={e => setCompanyName(e.target.value)} placeholder="e.g. Microsoft Corporation" required />
 
                         <label style={labelStyle}>Asset Type</label>
-                        <select style={inputStyle} value={assetType} onChange={e => setAssetType(e.target.value as 'Stock' | 'ETF')} disabled={isEdit}>
+                        <select style={inputStyle} value={assetType} onChange={e => setAssetType(e.target.value as 'Stock' | 'ETF' | 'MutualFund')} disabled={isEdit}>
                             <option value="Stock">Stock</option>
                             <option value="ETF">ETF</option>
+                            <option value="MutualFund">Mutual Fund</option>
                         </select>
 
                         <label style={labelStyle}>Sector / Category (optional)</label>

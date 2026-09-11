@@ -50,7 +50,7 @@ export type StockRankingRow = {
 export type OnboardPayload = {
     tickerSymbol: string;
     companyName: string;
-    assetType: 'Stock' | 'ETF';
+    assetType: 'Stock' | 'ETF' | 'MutualFund';
     databaseCategory?: string;
     industryClassification?: string;
     exchangeListed?: string;
@@ -120,7 +120,7 @@ export async function removeAssetEntry(id: number, tickerSymbol: string): Promis
     return (await res.json()).data;
 }
 
-export async function fetchAssetUniverse(assetType: 'stock' | 'ETF'): Promise<AssetInfo[]> {
+export async function fetchAssetUniverse(assetType: 'stock' | 'ETF' | 'MutualFund'): Promise<AssetInfo[]> {
     const res = await fetch(`/api/asset-universe?assetType=${assetType}`);
     return (await res.json()).data ?? [];
 }

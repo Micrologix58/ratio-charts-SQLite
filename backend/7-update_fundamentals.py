@@ -52,10 +52,10 @@ def setup_logging():
 logger = setup_logging()
 
 
-def load_stock_etf_tickers(conn):
+def load_tickers_with_type(conn):
     cur = conn.cursor()
-    cur.execute("SELECT TickerSymbol FROM Companies WHERE UPPER(AssetType) IN ('STOCK', 'ETF')")
-    return [row[0] for row in cur.fetchall()]
+    cur.execute("SELECT TickerSymbol, UPPER(AssetType) FROM Companies WHERE UPPER(AssetType) IN ('STOCK', 'ETF', 'MUTUALFUND')")
+    return cur.fetchall()
 
 
 def marketdata_headers():
@@ -192,19 +192,46 @@ def collect_metrics(session, ticker, as_of_date):
     return metrics
 
 
+def collect_fund_metrics(conn, ticker, as_of_date):
+    """Mutual funds have no earnings, market cap, or shares-outstanding data on
+    either marketdata.app or finnhub's free tier -- 52-week high/low is derived
+    from the locally-backfilled PriceHistory (funds/candles/D) instead."""
+    year_ago_date = (dt.date.fromisoformat(as_of_date) - dt.timedelta(days=365)).isoformat()
+    cur = conn.cursor()
+    cur.execute(
+        """
+        SELECT MAX(ClosePrice), MIN(ClosePrice) FROM PriceHistory
+        WHERE TickerSymbol = ? AND PriceDate >= ? AND PriceDate <= ? AND ClosePrice IS NOT NULL
+        """,
+        (ticker, year_ago_date, as_of_date),
+    )
+    high52, low52 = cur.fetchone()
+
+    metrics = []
+    if high52 is not None:
+        metrics.append(("52WeekHigh", high52, "PriceHistory"))
+    if low52 is not None:
+        metrics.append(("52WeekLow", low52, "PriceHistory"))
+    return metrics
+
+
 def main():
     conn = db.get_connection()
     session = requests.Session()
     today = dt.date.today().isoformat()
 
     try:
-        tickers = load_stock_etf_tickers(conn)
-        logger.info("Starting fundamentals update for %s stock/ETF tickers", len(tickers))
+        tickers = load_tickers_with_type(conn)
+        logger.info("Starting fundamentals update for %s stock/ETF/mutual fund tickers", len(tickers))
 
         total_upserted = 0
-        for idx, ticker in enumerate(tickers, start=1):
-            logger.info("%s/%s: %s", idx, len(tickers), ticker)
-            metrics = collect_metrics(session, ticker, today)
+        for idx, (ticker, asset_type) in enumerate(tickers, start=1):
+            logger.info("%s/%s: %s (%s)", idx, len(tickers), ticker, asset_type)
+            metrics = (
+                collect_fund_metrics(conn, ticker, today)
+                if asset_type == "MUTUALFUND"
+                else collect_metrics(session, ticker, today)
+            )
 
             if metrics:
                 rows = [

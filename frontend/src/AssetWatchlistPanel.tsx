@@ -49,7 +49,7 @@ function AssetSearch({
     onSelect,
     onClose,
 }: {
-    assetType: 'stock' | 'ETF';
+    assetType: 'stock' | 'ETF' | 'MutualFund';
     onSelect: (symbol: string) => void;
     onClose: () => void;
 }) {
@@ -75,7 +75,7 @@ function AssetSearch({
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 onKeyDown={e => e.key === 'Escape' && onClose()}
-                placeholder={`Search ${assetType === 'ETF' ? 'ETF' : 'stock'} or name…`}
+                placeholder={`Search ${assetType === 'ETF' ? 'ETF' : assetType === 'MutualFund' ? 'mutual fund' : 'stock'} or name…`}
                 style={{ ...inputStyle, margin: '6px 6px 2px' }}
             />
             <div style={{ overflowY: 'auto', flex: 1 }}>
@@ -104,7 +104,7 @@ function AssetSearch({
 // ── Main panel ───────────────────────────────────────────────────────────────
 export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange, onOpenRanking, onOpenChart, refreshToken, onWatchlistDataChanged }: Props) {
     const [watchlists, setWatchlists] = useState<AssetWatchlist[]>([]);
-    const [addMode, setAddMode] = useState<'stock' | 'ETF' | null>(null);
+    const [addMode, setAddMode] = useState<'stock' | 'ETF' | 'MutualFund' | null>(null);
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -303,6 +303,13 @@ export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange
                         style={{ ...btnStyle, flex: 1, fontSize: 12, color: '#a78bfa' }}
                     >
                         + ETF
+                    </button>
+                    <button
+                        onClick={() => setAddMode(m => m === 'MutualFund' ? null : 'MutualFund')}
+                        disabled={!activeWatchlistId}
+                        style={{ ...btnStyle, flex: 1, fontSize: 12, color: '#f59e0b' }}
+                    >
+                        + Fund
                     </button>
                 </div>
                 <div style={{ display: 'flex', gap: 4 }}>

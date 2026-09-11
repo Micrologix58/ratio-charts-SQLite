@@ -9,16 +9,25 @@ API_BASE_URL = db.get_env("MARKETDATA_BASE_URL", required=False, default="https:
 API_KEY = db.get_env("MARKETDATA_API_KEY", required=False, default="") or db.get_env("API_KEY", required=False, default="")
 
 
-def fetch_prices_from_api(ticker, start_date, end_date):
+def get_asset_type(conn, ticker):
+    cur = conn.cursor()
+    cur.execute("SELECT UPPER(AssetType) FROM Companies WHERE TickerSymbol = ?", (ticker,))
+    row = cur.fetchone()
+    return row[0] if row else None
+
+
+def fetch_prices_from_api(ticker, start_date, end_date, asset_type=None):
     """
     Fetch daily candles from Marketdata.app and map them into a list of
-    dicts for PriceHistory.
+    dicts for PriceHistory. Mutual funds use the /v1/funds/ endpoint (which
+    carries no "v" volume key at all) instead of /v1/stocks/.
     """
     if not API_KEY:
         raise ValueError("MARKETDATA_API_KEY (or API_KEY) is not set")
 
     headers = {"Authorization": f"Bearer {API_KEY}"}
-    url = f"{API_BASE_URL}/v1/stocks/candles/D/{ticker}/"
+    segment = "funds" if asset_type == "MUTUALFUND" else "stocks"
+    url = f"{API_BASE_URL}/v1/{segment}/candles/D/{ticker}/"
     params = {
         "from": start_date.isoformat(),
         "to": end_date.isoformat(),
@@ -38,12 +47,13 @@ def fetch_prices_from_api(ticker, start_date, end_date):
     c_arr = data.get("c") or []
     v_arr = data.get("v") or []
 
-    n = min(len(t_arr), len(o_arr), len(h_arr), len(l_arr), len(c_arr), len(v_arr))
+    n = min(len(t_arr), len(o_arr), len(h_arr), len(l_arr), len(c_arr))
     bars = []
 
     for i in range(n):
         ts = t_arr[i]
         price_date = dt.datetime.fromtimestamp(ts, tz=dt.timezone.utc).date()
+        volume_val = v_arr[i] if i < len(v_arr) else None
 
         bars.append({
             "date": price_date,
@@ -51,7 +61,7 @@ def fetch_prices_from_api(ticker, start_date, end_date):
             "high": float(h_arr[i]) if h_arr[i] is not None else None,
             "low": float(l_arr[i]) if l_arr[i] is not None else None,
             "close": float(c_arr[i]) if c_arr[i] is not None else None,
-            "volume": int(v_arr[i]) if v_arr[i] is not None else None,
+            "volume": int(volume_val) if volume_val is not None else None,
         })
 
     return bars
@@ -90,7 +100,8 @@ def main():
     try:
         for ticker in tickers:
             try:
-                bars = fetch_prices_from_api(ticker, start_date, end_date)
+                asset_type = get_asset_type(conn, ticker)
+                bars = fetch_prices_from_api(ticker, start_date, end_date, asset_type)
 
                 rows = [
                     {

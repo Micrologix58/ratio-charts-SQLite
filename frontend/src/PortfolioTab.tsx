@@ -98,7 +98,7 @@ function AddHoldingForm({
     onCreateAccount: (name: string) => Promise<PortfolioAccount>;
     onClose: () => void;
 }) {
-    const [assetType, setAssetType] = useState<'stock' | 'ETF'>('stock');
+    const [assetType, setAssetType] = useState<'stock' | 'ETF' | 'MutualFund'>('stock');
     const [accountId, setAccountId] = useState<number | ''>(accounts[0]?.id ?? '');
     const [newAccountName, setNewAccountName] = useState('');
     const [showNewAccount, setShowNewAccount] = useState(accounts.length === 0);
@@ -135,6 +135,7 @@ function AddHoldingForm({
             <div style={{ display: 'flex', gap: 4, padding: 8, borderBottom: '1px solid #2a2a2a' }}>
                 <button onClick={() => setAssetType('stock')} style={{ ...btnStyle, flex: 1, fontSize: 12, background: assetType === 'stock' ? '#2a3a4a' : '#1e1e1e' }}>Stock</button>
                 <button onClick={() => setAssetType('ETF')} style={{ ...btnStyle, flex: 1, fontSize: 12, background: assetType === 'ETF' ? '#2a3a4a' : '#1e1e1e', color: '#a78bfa' }}>ETF</button>
+                <button onClick={() => setAssetType('MutualFund')} style={{ ...btnStyle, flex: 1, fontSize: 12, background: assetType === 'MutualFund' ? '#2a3a4a' : '#1e1e1e', color: '#f59e0b' }}>Fund</button>
             </div>
 
             <div style={{ padding: '8px 8px 4px' }}>
@@ -170,7 +171,7 @@ function AddHoldingForm({
                 value={search}
                 onChange={e => setSearch(e.target.value)}
                 onKeyDown={e => e.key === 'Escape' && onClose()}
-                placeholder={`Search ${assetType === 'ETF' ? 'ETF' : 'stock'} or name…`}
+                placeholder={`Search ${assetType === 'ETF' ? 'ETF' : assetType === 'MutualFund' ? 'mutual fund' : 'stock'} or name…`}
                 style={{ ...inputStyle, margin: '4px 8px', width: 'calc(100% - 16px)' }}
             />
             <div style={{ maxHeight: 220, overflowY: 'auto', paddingBottom: 4 }}>
