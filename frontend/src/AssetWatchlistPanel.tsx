@@ -10,6 +10,7 @@ import {
     removeAssetEntry,
     fetchAssetUniverse,
 } from './services/assetWatchlistApi';
+import { addToBuyList } from './services/buyListApi';
 
 type Props = {
     activeWatchlistId: number | null;
@@ -106,6 +107,7 @@ export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange
     const [watchlists, setWatchlists] = useState<AssetWatchlist[]>([]);
     const [addMode, setAddMode] = useState<'stock' | 'ETF' | 'MutualFund' | null>(null);
     const [addError, setAddError] = useState<string | null>(null);
+    const [buyListAdded, setBuyListAdded] = useState<Set<string>>(new Set());
     const dropdownRef = useRef<HTMLDivElement>(null);
 
     const [renamingId, setRenamingId] = useState<number | null>(null);
@@ -158,6 +160,23 @@ export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange
         const updated = await removeAssetEntry(activeWatchlistId, symbol);
         setWatchlists(prev => prev.map(w => w.id === activeWatchlistId ? updated : w));
         onWatchlistDataChanged?.();
+    }
+
+    async function handleAddToBuyList(symbol: string) {
+        setAddError(null);
+        try {
+            await addToBuyList(symbol);
+            setBuyListAdded(prev => new Set(prev).add(symbol));
+            setTimeout(() => {
+                setBuyListAdded(prev => {
+                    const next = new Set(prev);
+                    next.delete(symbol);
+                    return next;
+                });
+            }, 2000);
+        } catch (err) {
+            setAddError(err instanceof Error ? err.message : `Failed to add ${symbol} to Buy List`);
+        }
     }
 
     async function handleCreateWatchlist() {
@@ -282,12 +301,25 @@ export function AssetWatchlistPanel({ activeWatchlistId, onActiveWatchlistChange
                                     {entry.companyName}
                                 </span>
                             </div>
-                            <button
-                                onClick={() => handleRemoveEntry(entry.tickerSymbol)}
-                                title="Remove"
-                                className="remove-btn"
-                                style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 12, padding: '0 2px', lineHeight: 1 }}
-                            >✕</button>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 4, flexShrink: 0 }}>
+                                <button
+                                    onClick={() => handleAddToBuyList(entry.tickerSymbol)}
+                                    title="Add to Buy List"
+                                    style={{
+                                        background: 'none', border: '1px solid #3a3a3a', borderRadius: 3,
+                                        color: buyListAdded.has(entry.tickerSymbol) ? '#4ade80' : '#94a3b8',
+                                        cursor: 'pointer', fontSize: 10, padding: '2px 5px', lineHeight: 1.4,
+                                    }}
+                                >
+                                    {buyListAdded.has(entry.tickerSymbol) ? '✓ Added' : '+ Buy'}
+                                </button>
+                                <button
+                                    onClick={() => handleRemoveEntry(entry.tickerSymbol)}
+                                    title="Remove"
+                                    className="remove-btn"
+                                    style={{ background: 'none', border: 'none', color: '#555', cursor: 'pointer', fontSize: 12, padding: '0 2px', lineHeight: 1 }}
+                                >✕</button>
+                            </div>
                         </div>
                     );
                 })}

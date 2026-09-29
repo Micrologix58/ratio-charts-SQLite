@@ -14,12 +14,68 @@ type Props = {
 };
 
 const EMPTY_RESEARCH: CompanyResearch = {
-    recommendation: null, score: null, debt: null, netDebt: null, productionCost: null,
+    sector: "OilGas", recommendation: null, score: null, debt: null, netDebt: null, productionCost: null,
     oneP: null, twoP: null, boepd2025: null,
-    prodLightPct: null, prodMedHeavyPct: null, prodNGLsPct: null, prodGasPct: null,
+    prodLightPct: null, prodMedHeavyPct: null, prodNGLsPct: null, prodGasPct: null, mineLifeYears: null,
     growth60: null, growth70: null, growth80: null, growth90: null, growth100: null,
     entryPriceBase: null, entryPriceBull: null, entryPriceBagger: null,
     executiveSummary: null,
+};
+
+type SectorKey = NonNullable<CompanyResearch["sector"]>;
+
+const SECTOR_LABELS: Record<SectorKey, string> = {
+    OilGas: "Oil & Gas",
+    Metals: "Metals & Mining",
+    Other: "Other / General",
+};
+
+// The specialized fields below are stored generically (ProductionCost, OneP, TwoP,
+// four ProdXPct slots, five GrowthX slots) and just relabeled per sector here, rather
+// than duplicating a parallel set of columns per industry. MineLifeYears is the one
+// field Metals needed that Oil & Gas has no equivalent for.
+type SectorTemplate = {
+    showSpecialized: boolean;
+    productionCostLabel: string;
+    oneLabel: string;
+    twoLabel: string;
+    rateLabel: string;
+    prodMixLabels: [string, string, string, string];
+    showMineLife: boolean;
+    growthSectionTitle: string;
+    growthLabels: [string, string, string, string, string];
+};
+
+const SECTOR_TEMPLATES: Record<SectorKey, SectorTemplate> = {
+    OilGas: {
+        showSpecialized: true,
+        productionCostLabel: "Production Cost ($/BOE)",
+        oneLabel: "1P (MMBoe)",
+        twoLabel: "2P (MMBoe)",
+        rateLabel: "2025 BOE/d",
+        prodMixLabels: ["Light", "Med/Heavy", "NGLs", "Gas"],
+        showMineLife: false,
+        growthSectionTitle: "Estimated Share Price Growth at BOE Price",
+        growthLabels: ["$60", "$70", "$80", "$90", "$100"],
+    },
+    Metals: {
+        showSpecialized: true,
+        productionCostLabel: "AISC ($/oz)",
+        oneLabel: "M&I Resources (Moz)",
+        twoLabel: "P&P Reserves (Moz)",
+        rateLabel: "Annual Production (oz)",
+        prodMixLabels: ["Gold", "Silver", "Copper", "Other"],
+        showMineLife: true,
+        growthSectionTitle: "Estimated Share Price Growth at Gold Price",
+        growthLabels: ["$2000", "$2400", "$2800", "$3200", "$3600"],
+    },
+    Other: {
+        showSpecialized: false,
+        productionCostLabel: "", oneLabel: "", twoLabel: "", rateLabel: "",
+        prodMixLabels: ["", "", "", ""],
+        showMineLife: false,
+        growthSectionTitle: "", growthLabels: ["", "", "", "", ""],
+    },
 };
 
 function fmt(v: number | null, digits = 2): string {
@@ -200,6 +256,7 @@ export function FundamentalsTab({ initialSymbol, onOpenChart }: Props) {
     }
 
     const s = data?.summary;
+    const tmpl = SECTOR_TEMPLATES[research.sector ?? "OilGas"];
 
     return (
         <div style={{ flex: 1, padding: 24, color: "#94a3b8", overflow: "auto" }}>
@@ -268,6 +325,18 @@ export function FundamentalsTab({ initialSymbol, onOpenChart }: Props) {
 
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 12 }}>
                                 <div style={fieldWrapStyle}>
+                                    <span style={labelStyle}>Sector</span>
+                                    <select
+                                        value={research.sector ?? "OilGas"}
+                                        onChange={e => setResearch({ ...research, sector: e.target.value as CompanyResearch["sector"] })}
+                                        style={inputStyle}
+                                    >
+                                        {(Object.keys(SECTOR_LABELS) as SectorKey[]).map(key => (
+                                            <option key={key} value={key}>{SECTOR_LABELS[key]}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                                <div style={fieldWrapStyle}>
                                     <span style={labelStyle}>Recommendation</span>
                                     <select
                                         value={research.recommendation ?? ""}
@@ -283,28 +352,39 @@ export function FundamentalsTab({ initialSymbol, onOpenChart }: Props) {
                                 <NumberField label="Score (0-10)" value={research.score} onChange={v => setResearch({ ...research, score: v })} />
                                 <NumberField label="Debt" value={research.debt} onChange={v => setResearch({ ...research, debt: v })} />
                                 <NumberField label="Net Debt" value={research.netDebt} onChange={v => setResearch({ ...research, netDebt: v })} />
-                                <NumberField label="Production Cost ($/BOE)" value={research.productionCost} onChange={v => setResearch({ ...research, productionCost: v })} />
-                                <NumberField label="1P (MMBoe)" value={research.oneP} onChange={v => setResearch({ ...research, oneP: v })} />
-                                <NumberField label="2P (MMBoe)" value={research.twoP} onChange={v => setResearch({ ...research, twoP: v })} />
-                                <NumberField label="2025 BOE/d" value={research.boepd2025} onChange={v => setResearch({ ...research, boepd2025: v })} />
+                                {tmpl.showSpecialized && (
+                                    <>
+                                        <NumberField label={tmpl.productionCostLabel} value={research.productionCost} onChange={v => setResearch({ ...research, productionCost: v })} />
+                                        <NumberField label={tmpl.oneLabel} value={research.oneP} onChange={v => setResearch({ ...research, oneP: v })} />
+                                        <NumberField label={tmpl.twoLabel} value={research.twoP} onChange={v => setResearch({ ...research, twoP: v })} />
+                                        <NumberField label={tmpl.rateLabel} value={research.boepd2025} onChange={v => setResearch({ ...research, boepd2025: v })} />
+                                        {tmpl.showMineLife && (
+                                            <NumberField label="Mine Life (years)" value={research.mineLifeYears} onChange={v => setResearch({ ...research, mineLifeYears: v })} />
+                                        )}
+                                    </>
+                                )}
                             </div>
 
-                            <div style={{ marginBottom: 4, ...labelStyle }}>Production Mix (%)</div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
-                                <NumberField label="Light" value={research.prodLightPct} onChange={v => setResearch({ ...research, prodLightPct: v })} />
-                                <NumberField label="Med/Heavy" value={research.prodMedHeavyPct} onChange={v => setResearch({ ...research, prodMedHeavyPct: v })} />
-                                <NumberField label="NGLs" value={research.prodNGLsPct} onChange={v => setResearch({ ...research, prodNGLsPct: v })} />
-                                <NumberField label="Gas" value={research.prodGasPct} onChange={v => setResearch({ ...research, prodGasPct: v })} />
-                            </div>
+                            {tmpl.showSpecialized && (
+                                <>
+                                    <div style={{ marginBottom: 4, ...labelStyle }}>Production Mix (%)</div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 12, marginBottom: 16 }}>
+                                        <NumberField label={tmpl.prodMixLabels[0]} value={research.prodLightPct} onChange={v => setResearch({ ...research, prodLightPct: v })} />
+                                        <NumberField label={tmpl.prodMixLabels[1]} value={research.prodMedHeavyPct} onChange={v => setResearch({ ...research, prodMedHeavyPct: v })} />
+                                        <NumberField label={tmpl.prodMixLabels[2]} value={research.prodNGLsPct} onChange={v => setResearch({ ...research, prodNGLsPct: v })} />
+                                        <NumberField label={tmpl.prodMixLabels[3]} value={research.prodGasPct} onChange={v => setResearch({ ...research, prodGasPct: v })} />
+                                    </div>
 
-                            <div style={{ marginBottom: 4, ...labelStyle }}>Estimated Share Price Growth at BOE Price</div>
-                            <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
-                                <TextField label="$60" value={research.growth60} onChange={v => setResearch({ ...research, growth60: v })} placeholder="+10%" />
-                                <TextField label="$70" value={research.growth70} onChange={v => setResearch({ ...research, growth70: v })} placeholder="+10%" />
-                                <TextField label="$80" value={research.growth80} onChange={v => setResearch({ ...research, growth80: v })} placeholder="+10%" />
-                                <TextField label="$90" value={research.growth90} onChange={v => setResearch({ ...research, growth90: v })} placeholder="+10%" />
-                                <TextField label="$100" value={research.growth100} onChange={v => setResearch({ ...research, growth100: v })} placeholder="+10%" />
-                            </div>
+                                    <div style={{ marginBottom: 4, ...labelStyle }}>{tmpl.growthSectionTitle}</div>
+                                    <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 12, marginBottom: 16 }}>
+                                        <TextField label={tmpl.growthLabels[0]} value={research.growth60} onChange={v => setResearch({ ...research, growth60: v })} placeholder="+10%" />
+                                        <TextField label={tmpl.growthLabels[1]} value={research.growth70} onChange={v => setResearch({ ...research, growth70: v })} placeholder="+10%" />
+                                        <TextField label={tmpl.growthLabels[2]} value={research.growth80} onChange={v => setResearch({ ...research, growth80: v })} placeholder="+10%" />
+                                        <TextField label={tmpl.growthLabels[3]} value={research.growth90} onChange={v => setResearch({ ...research, growth90: v })} placeholder="+10%" />
+                                        <TextField label={tmpl.growthLabels[4]} value={research.growth100} onChange={v => setResearch({ ...research, growth100: v })} placeholder="+10%" />
+                                    </div>
+                                </>
+                            )}
 
                             <div style={{ marginBottom: 4, ...labelStyle }}>Entry Prices</div>
                             <div style={{ display: "grid", gridTemplateColumns: "repeat(3, 1fr)", gap: 12 }}>

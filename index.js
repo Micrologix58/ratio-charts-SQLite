@@ -1447,6 +1447,8 @@ app.get("/api/fundamentals-page/:symbol", (req, res) => {
                     entryPriceBull: research.EntryPriceBull,
                     entryPriceBagger: research.EntryPriceBagger,
                     executiveSummary: research.ExecutiveSummary,
+                    sector: research.Sector,
+                    mineLifeYears: research.MineLifeYears,
                 } : null,
                 historical: historical.map(h => ({
                     fiscalYear: h.FiscalYear,
@@ -1479,20 +1481,24 @@ app.put("/api/fundamentals-page/:symbol/research", (req, res) => {
         if (b.recommendation && !["Buy", "Hold", "Sell"].includes(b.recommendation)) {
             return res.status(400).json({ success: false, error: "recommendation must be Buy, Hold, or Sell" });
         }
+        if (b.sector && !["OilGas", "Metals", "Other"].includes(b.sector)) {
+            return res.status(400).json({ success: false, error: "sector must be OilGas, Metals, or Other" });
+        }
 
         db.prepare(`
             INSERT INTO CompanyResearch (
-                TickerSymbol, Recommendation, Score, Debt, NetDebt, ProductionCost, OneP, TwoP, Boepd2025,
-                ProdLightPct, ProdMedHeavyPct, ProdNGLsPct, ProdGasPct,
+                TickerSymbol, Sector, Recommendation, Score, Debt, NetDebt, ProductionCost, OneP, TwoP, Boepd2025,
+                ProdLightPct, ProdMedHeavyPct, ProdNGLsPct, ProdGasPct, MineLifeYears,
                 Growth60, Growth70, Growth80, Growth90, Growth100,
                 EntryPriceBase, EntryPriceBull, EntryPriceBagger, ExecutiveSummary, UpdatedAt
             ) VALUES (
-                @tickerSymbol, @recommendation, @score, @debt, @netDebt, @productionCost, @oneP, @twoP, @boepd2025,
-                @prodLightPct, @prodMedHeavyPct, @prodNGLsPct, @prodGasPct,
+                @tickerSymbol, @sector, @recommendation, @score, @debt, @netDebt, @productionCost, @oneP, @twoP, @boepd2025,
+                @prodLightPct, @prodMedHeavyPct, @prodNGLsPct, @prodGasPct, @mineLifeYears,
                 @growth60, @growth70, @growth80, @growth90, @growth100,
                 @entryPriceBase, @entryPriceBull, @entryPriceBagger, @executiveSummary, CURRENT_TIMESTAMP
             )
             ON CONFLICT(TickerSymbol) DO UPDATE SET
+                Sector = excluded.Sector,
                 Recommendation = excluded.Recommendation,
                 Score = excluded.Score,
                 Debt = excluded.Debt,
@@ -1505,6 +1511,7 @@ app.put("/api/fundamentals-page/:symbol/research", (req, res) => {
                 ProdMedHeavyPct = excluded.ProdMedHeavyPct,
                 ProdNGLsPct = excluded.ProdNGLsPct,
                 ProdGasPct = excluded.ProdGasPct,
+                MineLifeYears = excluded.MineLifeYears,
                 Growth60 = excluded.Growth60,
                 Growth70 = excluded.Growth70,
                 Growth80 = excluded.Growth80,
@@ -1517,6 +1524,7 @@ app.put("/api/fundamentals-page/:symbol/research", (req, res) => {
                 UpdatedAt = CURRENT_TIMESTAMP
         `).run({
             tickerSymbol: symbol,
+            sector: b.sector ? String(b.sector) : "OilGas",
             recommendation: str(b.recommendation),
             score: num(b.score),
             debt: num(b.debt),
@@ -1529,6 +1537,7 @@ app.put("/api/fundamentals-page/:symbol/research", (req, res) => {
             prodMedHeavyPct: num(b.prodMedHeavyPct),
             prodNGLsPct: num(b.prodNGLsPct),
             prodGasPct: num(b.prodGasPct),
+            mineLifeYears: num(b.mineLifeYears),
             growth60: str(b.growth60),
             growth70: str(b.growth70),
             growth80: str(b.growth80),
@@ -1590,6 +1599,118 @@ app.put("/api/fundamentals-page/:symbol/historical", (req, res) => {
         })) });
     } catch (err) {
         console.error("PUT /api/fundamentals-page/:symbol/historical error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// ─── Buy List tab — see sql/010_buy_list.sql ──────────────────────────────
+
+const buyListStmt = db.prepare(`
+    SELECT b.TickerSymbol, c.CompanyName, c.AssetType, b.EntryPrice, b.Notes,
+           lp.ClosePrice AS CurrentPrice,
+           mc.MetricValue AS MarketCapUSD,
+           wh.MetricValue AS Week52High
+    FROM BuyList b
+    JOIN Companies c ON c.TickerSymbol = b.TickerSymbol
+    LEFT JOIN (
+        SELECT ph.TickerSymbol, ph.ClosePrice
+        FROM PriceHistory ph
+        WHERE ph.PriceDate = (
+            SELECT MAX(ph2.PriceDate) FROM PriceHistory ph2 WHERE ph2.TickerSymbol = ph.TickerSymbol
+        )
+    ) lp ON lp.TickerSymbol = b.TickerSymbol
+    LEFT JOIN (
+        SELECT f.TickerSymbol, f.MetricValue FROM FundamentalMetrics f
+        WHERE f.MetricName = 'MarketCapUSD' AND f.MetricDate = (
+            SELECT MAX(f2.MetricDate) FROM FundamentalMetrics f2 WHERE f2.TickerSymbol = f.TickerSymbol AND f2.MetricName = f.MetricName
+        )
+    ) mc ON mc.TickerSymbol = b.TickerSymbol
+    LEFT JOIN (
+        SELECT f.TickerSymbol, f.MetricValue FROM FundamentalMetrics f
+        WHERE f.MetricName = '52WeekHigh' AND f.MetricDate = (
+            SELECT MAX(f2.MetricDate) FROM FundamentalMetrics f2 WHERE f2.TickerSymbol = f.TickerSymbol AND f2.MetricName = f.MetricName
+        )
+    ) wh ON wh.TickerSymbol = b.TickerSymbol
+    ORDER BY b.CreatedAt DESC
+`);
+
+function loadBuyList() {
+    return buyListStmt.all().map(r => ({
+        tickerSymbol: r.TickerSymbol,
+        companyName: r.CompanyName,
+        assetType: r.AssetType,
+        entryPrice: r.EntryPrice,
+        notes: r.Notes,
+        currentPrice: r.CurrentPrice,
+        marketCapUSD: r.MarketCapUSD,
+        week52High: r.Week52High,
+    }));
+}
+
+// GET /api/buylist
+app.get("/api/buylist", (req, res) => {
+    try {
+        res.json({ success: true, data: loadBuyList() });
+    } catch (err) {
+        console.error("GET /api/buylist error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// POST /api/buylist  body: { tickerSymbol }
+app.post("/api/buylist", (req, res) => {
+    try {
+        const ticker = String(req.body.tickerSymbol || "").toUpperCase().trim();
+        if (!ticker) return res.status(400).json({ success: false, error: "tickerSymbol required" });
+
+        const company = db.prepare(`SELECT TickerSymbol FROM Companies WHERE TickerSymbol = ?`).get(ticker);
+        if (!company) return res.status(400).json({ success: false, error: `${ticker} is not a known ticker in Companies` });
+
+        db.prepare(`INSERT OR IGNORE INTO BuyList (TickerSymbol) VALUES (?)`).run(ticker);
+        res.json({ success: true, data: loadBuyList() });
+    } catch (err) {
+        console.error("POST /api/buylist error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// PUT /api/buylist/:ticker  body: { entryPrice? } and/or { notes? } -- only keys present are updated
+app.put("/api/buylist/:ticker", (req, res) => {
+    try {
+        const ticker = String(req.params.ticker || "").toUpperCase().trim();
+        const body = req.body || {};
+
+        const sets = ["UpdatedAt = CURRENT_TIMESTAMP"];
+        const params = { ticker };
+        if ("entryPrice" in body) {
+            sets.push("EntryPrice = @entryPrice");
+            params.entryPrice = body.entryPrice === "" || body.entryPrice === null || body.entryPrice === undefined
+                ? null : Number(body.entryPrice);
+        }
+        if ("notes" in body) {
+            sets.push("Notes = @notes");
+            params.notes = body.notes === "" || body.notes === null || body.notes === undefined ? null : String(body.notes);
+        }
+        if (sets.length === 1) return res.status(400).json({ success: false, error: "nothing to update" });
+
+        const info = db.prepare(`UPDATE BuyList SET ${sets.join(", ")} WHERE TickerSymbol = @ticker`).run(params);
+        if (info.changes === 0) return res.status(404).json({ success: false, error: `${ticker} not on Buy List` });
+
+        res.json({ success: true, data: loadBuyList() });
+    } catch (err) {
+        console.error("PUT /api/buylist/:ticker error:", err);
+        res.status(500).json({ success: false, error: err.message });
+    }
+});
+
+// DELETE /api/buylist/:ticker
+app.delete("/api/buylist/:ticker", (req, res) => {
+    try {
+        const ticker = String(req.params.ticker || "").toUpperCase().trim();
+        db.prepare(`DELETE FROM BuyList WHERE TickerSymbol = ?`).run(ticker);
+        res.json({ success: true, data: loadBuyList() });
+    } catch (err) {
+        console.error("DELETE /api/buylist/:ticker error:", err);
         res.status(500).json({ success: false, error: err.message });
     }
 });

@@ -1,4 +1,4 @@
-export type AppTab = 'home' | 'chart' | 'watchlist' | 'portfolio' | 'allocation' | 'dipfinder' | 'fundamentals';
+export type AppTab = 'home' | 'chart' | 'watchlist' | 'portfolio' | 'allocation' | 'dipfinder' | 'fundamentals' | 'buylist';
 
 const TABS: { id: AppTab; label: string }[] = [
     { id: 'home',         label: 'Home'         },
@@ -6,6 +6,7 @@ const TABS: { id: AppTab; label: string }[] = [
     { id: 'allocation',   label: 'Allocation'   },
     { id: 'fundamentals', label: 'Fundamentals' },
     { id: 'watchlist',    label: 'Watchlist'    },
+    { id: 'buylist',      label: 'Buy List'     },
     { id: 'dipfinder',    label: 'Dip Finder'   },
     { id: 'chart',        label: 'Chart'        },
 ];

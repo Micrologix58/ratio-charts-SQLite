@@ -11,6 +11,7 @@ export type FundamentalsSummary = {
 };
 
 export type CompanyResearch = {
+    sector: 'OilGas' | 'Metals' | 'Other' | null;
     recommendation: 'Buy' | 'Hold' | 'Sell' | null;
     score: number | null;
     debt: number | null;
@@ -23,6 +24,7 @@ export type CompanyResearch = {
     prodMedHeavyPct: number | null;
     prodNGLsPct: number | null;
     prodGasPct: number | null;
+    mineLifeYears: number | null;
     growth60: string | null;
     growth70: string | null;
     growth80: string | null;

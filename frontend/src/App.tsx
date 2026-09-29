@@ -14,6 +14,7 @@ import { HomeMarketPanel } from "./HomeMarketPanel";
 import { AssetAllocationPanel } from "./AssetAllocationPanel";
 import { DipFinderPanel } from "./DipFinderPanel";
 import { FundamentalsTab } from "./FundamentalsTab";
+import { BuyListTab } from "./BuyListTab";
 import { PortfolioNewsPanel } from "./PortfolioNewsPanel";
 import { WatchlistNewsPanel } from "./WatchlistNewsPanel";
 import { AuthGate } from "./AuthGate";
@@ -1140,6 +1141,9 @@ export default function App() {
 
             {/* Watchlist tab */}
             {activeTab === "watchlist" && <AssetWatchlistTab onOpenChart={handleOpenFundamentals} />}
+
+            {/* Buy List tab */}
+            {activeTab === "buylist" && <BuyListTab onOpenChart={handleOpenFundamentals} />}
 
             {/* Dip Finder tab */}
             {activeTab === "dipfinder" && <DipFinderPanel onOpenChart={handleOpenChartSymbol} />}
