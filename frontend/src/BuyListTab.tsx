@@ -174,9 +174,12 @@ export function BuyListTab({ onOpenChart }: Props) {
                                         <button
                                             onClick={() => handleRemove(entry.tickerSymbol)}
                                             title="Remove from Buy List"
-                                            style={{ background: "none", border: "none", color: "#555", cursor: "pointer", fontSize: 13 }}
+                                            style={{
+                                                background: "none", border: "1px solid #3a3a3a", borderRadius: 4,
+                                                color: "#ef4444", cursor: "pointer", fontSize: 12, padding: "4px 10px",
+                                            }}
                                         >
-                                            ✕
+                                            Remove
                                         </button>
                                     </td>
                                 </tr>
