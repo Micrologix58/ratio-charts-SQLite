@@ -912,14 +912,50 @@ const MARKET_SNAPSHOT_ITEMS = [
 const latestTwoClosesStmt = db.prepare(
     `SELECT ClosePrice, PriceDate FROM PriceHistory WHERE TickerSymbol = ? ORDER BY PriceDate DESC LIMIT 2`
 );
+const latestCloseStmt = db.prepare(
+    `SELECT ClosePrice, PriceDate FROM PriceHistory WHERE TickerSymbol = ? ORDER BY PriceDate DESC LIMIT 1`
+);
+// Most recent close on or before (latestDate - offset) -- "on or before" so a
+// week/month-ago lookup still lands on the nearest prior trading day when the
+// exact calendar date falls on a weekend/holiday.
+const closeAsOfOffsetStmt = db.prepare(
+    `SELECT ClosePrice, PriceDate FROM PriceHistory
+     WHERE TickerSymbol = ? AND PriceDate <= date(?, ?)
+     ORDER BY PriceDate DESC LIMIT 1`
+);
 
-// GET /api/market-snapshot
+// SQLite date() modifiers for each selectable timeframe ("day" is handled
+// separately below since it just wants the prior row, not a date offset).
+const TIMEFRAME_OFFSETS = {
+    week: "-7 days",
+    month: "-1 month",
+};
+
+// GET /api/market-snapshot?timeframe=day|week|month (default day)
 app.get("/api/market-snapshot", requireAuth, (req, res) => {
     try {
+        const timeframe = String(req.query.timeframe || "day");
+        if (timeframe !== "day" && !(timeframe in TIMEFRAME_OFFSETS)) {
+            return res.status(400).json({ success: false, error: "Invalid timeframe" });
+        }
+
         const data = MARKET_SNAPSHOT_ITEMS.map(item => {
-            const rows = latestTwoClosesStmt.all(item.symbol);
-            const current = rows[0]?.ClosePrice ?? null;
-            const previous = rows[1]?.ClosePrice ?? null;
+            let current, previous, asOfDate;
+
+            if (timeframe === "day") {
+                const rows = latestTwoClosesStmt.all(item.symbol);
+                current = rows[0]?.ClosePrice ?? null;
+                previous = rows[1]?.ClosePrice ?? null;
+                asOfDate = rows[0]?.PriceDate ?? null;
+            } else {
+                const latest = latestCloseStmt.get(item.symbol);
+                current = latest?.ClosePrice ?? null;
+                asOfDate = latest?.PriceDate ?? null;
+                previous = latest
+                    ? closeAsOfOffsetStmt.get(item.symbol, latest.PriceDate, TIMEFRAME_OFFSETS[timeframe])?.ClosePrice ?? null
+                    : null;
+            }
+
             const pctChange = current != null && previous ? ((current - previous) / previous) * 100 : null;
             return {
                 section: item.section,
@@ -928,7 +964,7 @@ app.get("/api/market-snapshot", requireAuth, (req, res) => {
                 current,
                 previous,
                 pctChange,
-                asOfDate: rows[0]?.PriceDate ?? null,
+                asOfDate,
             };
         });
         res.json({ success: true, data });
